@@ -1,0 +1,23 @@
+﻿@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700&family=Playfair+Display:wght@700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-nardo-950 text-nardo-100 antialiased;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-nardo-950;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-nardo-700 rounded;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-nardo-500;
+}
