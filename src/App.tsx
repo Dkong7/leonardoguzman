@@ -1,7 +1,10 @@
 ﻿import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
-import Home from './pages/Home';
+
+// CORRECCIÓN AQUÍ: Hero está en 'components', no en 'pages'
+import Hero from './components/Hero'; 
+
 import Musica from './pages/Musica';
 import Tienda from './pages/Tienda';
 import Bio from './pages/Bio';
@@ -17,6 +20,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     <div className='bg-nardo-950 text-nardo-100 min-h-screen font-sans flex flex-col'>
       {!isAdmin && <Navbar />}
       <main className="flex-grow">{children}</main>
+      {/* Si tienes footer, se mostrará aquí. Si no, comenta la línea de abajo */}
       {!isAdmin && <Footer />}
     </div>
   );
@@ -27,7 +31,7 @@ function App() {
     <BrowserRouter>
       <Layout>
         <Routes>
-          <Route path='/' element={<Home />} />
+          <Route path='/' element={<Hero />} />
           <Route path='/musica' element={<Musica />} />
           <Route path='/tienda' element={<Tienda />} />
           <Route path='/biografia' element={<Bio />} />

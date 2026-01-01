@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
-import { supabase } from '../services/supabase';
+import pb from '../lib/pocketbase'; // Ahora esto funcionará
 import ProgramasNeon from '../components/ProgramasNeon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faShoppingCart } from '@fortawesome/free-solid-svg-icons';
@@ -9,19 +9,28 @@ const Tienda = () => {
 
   useEffect(() => {
     const fetch = async () => {
-       const { data } = await supabase.from('tienda').select('*').neq('categoria', 'Servicios').order('precio_usd', { ascending: false });
-       if(data) setItems(data);
+       try {
+           const records = await pb.collection('tienda').getFullList({
+               filter: 'categoria != "Servicios"',
+               sort: '-precio_usd'
+           });
+           
+           const mappedItems = records.map((i: any) => ({
+               ...i,
+               imagen_url: i.imagen ? pb.files.getUrl(i, i.imagen) : i.imagen_url
+           }));
+
+           setItems(mappedItems);
+       } catch (e) {
+           console.error("Error tienda:", e);
+       }
     };
     fetch();
   }, []);
 
   return (
     <div className='pt-24 min-h-screen bg-nardo-950'>
-      
-      {/* 1. SECCIÓN DE CLASES (Nuevo Diseño 12 Pasos) */}
       <ProgramasNeon />
-
-      {/* 2. MERCH STORE */}
       <div className='max-w-7xl mx-auto px-4 py-20 border-t border-nardo-900'>
          <h2 className='text-4xl font-serif font-bold text-white mb-12 text-center'>STORE & <span className='text-nardo-500'>MERCH</span></h2>
          
@@ -34,7 +43,7 @@ const Tienda = () => {
                  </div>
                  <div className='p-6'>
                     <h3 className='text-xl font-bold text-white mb-2'>{item.nombre}</h3>
-                    <p className='text-gray-400 text-sm mb-6'>{item.descripcion}</p>
+                    <p className='text-gray-400 text-sm mb-6 line-clamp-2'>{item.descripcion}</p>
                     <a href={item.link_pago} target='_blank' className='w-full py-3 bg-white text-black font-bold text-sm rounded flex items-center justify-center gap-2 hover:bg-nardo-400 hover:text-white transition-colors'>
                        <FontAwesomeIcon icon={faShoppingCart} /> COMPRAR
                     </a>

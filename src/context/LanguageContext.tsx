@@ -8,8 +8,40 @@ interface LanguageContextType {
 }
 
 const translations = {
-  ES: { home: 'INICIO', music: 'MÚSICA', tour: 'CONCIERTOS', store: 'TIENDA', bio: 'BIO', school: 'ACADEMIA', buy: 'COMPRAR', private_lessons: 'CLASES PERSONALIZADAS', check_availability: 'VER DISPONIBILIDAD' },
-  EN: { home: 'HOME', music: 'MUSIC', tour: 'TOUR', store: 'STORE', bio: 'BIO', school: 'SCHOOL', buy: 'BUY', private_lessons: 'PRIVATE LESSONS', check_availability: 'CHECK AVAILABILITY' }
+  ES: { 
+    home: 'INICIO', 
+    music: 'MÚSICA', 
+    tour: 'CONCIERTOS', 
+    store: 'TIENDA', 
+    bio: 'BIO', 
+    school: 'ACADEMIA', 
+    buy: 'COMPRAR', 
+    private_lessons: 'CLASES PERSONALIZADAS', 
+    check_availability: 'VER DISPONIBILIDAD',
+    
+    // Textos del MusicPlayer
+    now_playing: 'REPRODUCIENDO AHORA',
+    share: 'COMPARTIR',
+    copied: '¡ENLACE COPIADO!',
+    listen_on: 'DISPONIBLE EN TODAS LAS PLATAFORMAS' // <--- ESTA FALTABA
+  },
+  EN: { 
+    home: 'HOME', 
+    music: 'MUSIC', 
+    tour: 'TOUR', 
+    store: 'STORE', 
+    bio: 'BIO', 
+    school: 'SCHOOL', 
+    buy: 'BUY', 
+    private_lessons: 'PRIVATE LESSONS', 
+    check_availability: 'CHECK AVAILABILITY',
+    
+    // Textos del MusicPlayer
+    now_playing: 'NOW PLAYING',
+    share: 'SHARE',
+    copied: 'LINK COPIED!',
+    listen_on: 'AVAILABLE ON ALL PLATFORMS' // <--- ESTA FALTABA
+  }
 };
 
 const LanguageContext = createContext<LanguageContextType>({ lang: 'ES', toggleLang: () => {}, t: () => '' });

@@ -1,9 +1,9 @@
 ﻿import { useEffect, useState } from 'react';
-import { supabase } from '../services/supabase';
+import pb from '../lib/pocketbase';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faTicketAlt, faMapMarkerAlt } from '@fortawesome/free-solid-svg-icons';
 
-interface Gig { id: string; fecha: string; ciudad: string; lugar: string; link_tiquetes: string; activo: boolean; imagen_url?: string; }
+interface Gig { id: string; fecha: string; ciudad: string; lugar: string; link_tiquetes: string; activo: boolean; imagen_url?: string; imagen?: string; }
 
 const GigsWidget = () => {
   const [gigs, setGigs] = useState<Gig[]>([]);
@@ -13,10 +13,20 @@ const GigsWidget = () => {
 
   const fetchGigs = async () => {
     try {
-      const { data, error } = await supabase.from('conciertos').select('*').eq('activo', true).order('fecha', { ascending: true });
-      if (error) throw error;
-      setGigs(data || []);
-    } catch (error) { console.error('Error:', error); } finally { setLoading(false); }
+      const records = await pb.collection('conciertos').getFullList({
+          filter: 'activo = true',
+          sort: '+fecha'
+      });
+      const mappedGigs = records.map((g: any) => ({
+          ...g,
+          imagen_url: g.imagen ? pb.files.getUrl(g, g.imagen) : g.imagen_url
+      }));
+      setGigs(mappedGigs);
+    } catch (error) { 
+        console.error('Error Gigs:', error); 
+    } finally { 
+        setLoading(false); 
+    }
   };
 
   const getDay = (date: string) => new Date(date).getDate();

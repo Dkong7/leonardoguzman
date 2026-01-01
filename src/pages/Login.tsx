@@ -1,5 +1,5 @@
 ﻿import { useState } from 'react';
-import { supabase } from '../services/supabase';
+import pb from '../lib/pocketbase';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faEye } from '@fortawesome/free-solid-svg-icons';
 import { useNavigate } from 'react-router-dom';
@@ -13,18 +13,31 @@ const Login = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) alert(error.message);
-    else navigate('/nardonardonardo/dashboard');
-    setLoading(false);
+    try {
+        // Auth con PocketBase
+        await pb.collection('users').authWithPassword(email, password);
+        navigate('/nardonardonardo/dashboard');
+    } catch (error: any) {
+        alert("Error de acceso: " + error.message);
+    } finally {
+        setLoading(false);
+    }
   };
 
   const handleRegister = async () => {
     setLoading(true);
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) alert(error.message);
-    else alert('Revisa tu email para confirmar!');
-    setLoading(false);
+    try {
+        await pb.collection('users').create({
+            email,
+            password,
+            passwordConfirm: password,
+        });
+        alert('Usuario creado! Ahora puedes loguearte.');
+    } catch (error: any) {
+        alert("Error registro: " + error.message);
+    } finally {
+        setLoading(false);
+    }
   };
 
   return (

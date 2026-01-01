@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
-import { supabase } from '../services/supabase';
+import pb from '../lib/pocketbase';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlay, faShoppingCart } from '@fortawesome/free-solid-svg-icons';
 
@@ -8,8 +8,19 @@ const Musica = () => {
 
   useEffect(() => {
     const fetch = async () => {
-       const { data } = await supabase.from('musica').select('*').order('orden');
-       if(data) setAlbums(data);
+       try {
+           const records = await pb.collection('musica').getFullList({ sort: 'orden' });
+           
+           const mappedAlbums = records.map((a: any) => ({
+               ...a,
+               url_audio: a.audio ? pb.files.getUrl(a, a.audio) : a.url_audio,
+               url_cover: a.cover ? pb.files.getUrl(a, a.cover) : a.url_cover
+           }));
+
+           setAlbums(mappedAlbums);
+       } catch (e) {
+           console.error(e);
+       }
     };
     fetch();
   }, []);
