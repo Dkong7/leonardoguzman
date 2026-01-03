@@ -3,3 +3,15 @@ node_modules
 dist
 .DS_Store
 .vscode
+# Ignorar base de datos y archivos de PocketBase
+backend/pb_data/
+backend/pocketbase.exe
+backend/pocketbase
+
+# Ignorar módulos de node
+node_modules/
+backend/node_modules/
+
+# Ignorar archivos de sistema y logs
+.DS_Store
+npm-debug.log*

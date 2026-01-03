@@ -4,5 +4,7 @@
 const url = import.meta.env.VITE_POCKETBASE_URL || 'http://127.0.0.1:8090';
 const pb = new PocketBase(url);
 
-// ESTA LÍNEA ES LA CLAVE PARA ARREGLAR EL ERROR "NO DEFAULT EXPORT"
+// ESTA LÍNEA ES LA CLAVE PARA ARREGLAR LOS ERRORES DE CARGA CANCELADA
+pb.autoCancellation(false);
+
 export default pb;

@@ -2,17 +2,17 @@
 import pb from '../lib/pocketbase'; 
 import GigsWidget from './GigsWidget'; 
 import MusicPlayer from './MusicPlayer';
+import Aliados from './Aliados'; 
+import HomeStorePreview from './HomeStorePreview'; // <--- IMPORTAMOS EL PREVIEW DE TIENDA
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faStar, faQuoteLeft } from '@fortawesome/free-solid-svg-icons';
-// 1. IMPORTAMOS TU CONTEXTO
 import { useLanguage } from '../context/LanguageContext';
 
-// 2. ACTUALIZAMOS LA INTERFAZ
 interface Quote {
   id: string;
   autor: string;
   texto: string;
-  texto_en: string; // Campo nuevo
+  texto_en: string; 
   imagen_url: string; 
   orden: number;
 }
@@ -21,7 +21,6 @@ const Hero = () => {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [qIndex, setQIndex] = useState(0);
 
-  // 3. USAMOS EL IDIOMA DEL CONTEXTO
   const { lang } = useLanguage();
 
   useEffect(() => {
@@ -35,7 +34,7 @@ const Hero = () => {
             id: record.id,
             autor: record.autor,
             texto: record.texto,
-            texto_en: record.texto_en, // 4. MAPEAMOS EL DATO DE LA BD
+            texto_en: record.texto_en,
             imagen_url: record.imagen_url || pb.files.getUrl(record, record.imagen), 
             orden: record.orden
         }));
@@ -58,14 +57,14 @@ const Hero = () => {
 
   const currentQuote = quotes[qIndex];
   
-  // 5. LÓGICA DE SELECCIÓN DE TEXTO
-  // Si el idioma es EN y existe traducción, úsala. Si no, usa español por defecto.
   const displayText = currentQuote 
     ? (lang === 'EN' && currentQuote.texto_en ? currentQuote.texto_en : currentQuote.texto) 
     : '';
 
   return (
     <div className='min-h-screen bg-nardo-950 text-white'>
+      
+      {/* 1. SECCIÓN PRINCIPAL (HERO + TESTIMONIOS) */}
       <section className='h-screen relative flex items-center justify-center overflow-hidden'>
         
         <div className='absolute inset-0 z-0'>
@@ -92,24 +91,23 @@ const Hero = () => {
              {quotes.length > 0 && currentQuote && (
                <div className='absolute inset-0 flex items-center justify-center transition-opacity duration-1000'>
                  <div className='bg-black/60 backdrop-blur border border-nardo-500/30 p-6 rounded-2xl flex items-center gap-6 shadow-[0_0_30px_rgba(157,78,221,0.15)] hover:border-nardo-500 transition-all w-full max-w-2xl'>
-                    
-                    <div className='relative shrink-0'>
-                       <img 
-                         src={currentQuote.imagen_url} 
-                         alt={currentQuote.autor}
-                         className='w-20 h-20 rounded-full border-2 border-nardo-500 object-cover'
-                       />
-                       <div className='absolute -bottom-2 -right-2 bg-nardo-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full'>
-                         <FontAwesomeIcon icon={faStar} />
-                       </div>
-                    </div>
-                    
-                    <div className='text-left'>
-                       <FontAwesomeIcon icon={faQuoteLeft} className='text-nardo-500/50 text-xl mb-2' />
-                       {/* AQUÍ MOSTRAMOS EL TEXTO DINÁMICO */}
-                       <p className='text-lg italic text-gray-200 leading-snug mb-2'>"{displayText}"</p>
-                       <p className='text-xs font-bold text-nardo-400 uppercase tracking-[0.2em]'>— {currentQuote.autor}</p>
-                    </div>
+                   
+                   <div className='relative shrink-0'>
+                      <img 
+                        src={currentQuote.imagen_url} 
+                        alt={currentQuote.autor}
+                        className='w-20 h-20 rounded-full border-2 border-nardo-500 object-cover'
+                      />
+                      <div className='absolute -bottom-2 -right-2 bg-nardo-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full'>
+                        <FontAwesomeIcon icon={faStar} />
+                      </div>
+                   </div>
+                   
+                   <div className='text-left'>
+                      <FontAwesomeIcon icon={faQuoteLeft} className='text-nardo-500/50 text-xl mb-2' />
+                      <p className='text-lg italic text-gray-200 leading-snug mb-2'>"{displayText}"</p>
+                      <p className='text-xs font-bold text-nardo-400 uppercase tracking-[0.2em]'>— {currentQuote.autor}</p>
+                   </div>
 
                  </div>
                </div>
@@ -119,9 +117,17 @@ const Hero = () => {
         </div>
       </section>
 
+      {/* 2. REPRODUCTOR DE MÚSICA */}
       <MusicPlayer />
       
-      <section id='tour' className='bg-nardo-950 py-20'>
+      {/* 3. ALIADOS (Sponsors) */}
+      <Aliados />
+
+      {/* 4. PREVIEW DE TIENDA (Nuevo) */}
+      <HomeStorePreview />
+      
+      {/* 5. GIGS (Conciertos) */}
+      <section id='tour' className='bg-nardo-950 py-12 border-t border-nardo-900/30'>
          <GigsWidget />
       </section>
     </div>
