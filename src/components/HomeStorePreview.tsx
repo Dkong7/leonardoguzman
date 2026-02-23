@@ -1,100 +1,130 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import pb from '../lib/pocketbase';
-import { useLanguage } from '../context/LanguageContext';
+import { useState, useContext } from 'react';
+import { CartContext } from '../context/CartContext';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowRight, faGraduationCap, faShirt } from '@fortawesome/free-solid-svg-icons';
+import { faTimes, faCartPlus } from '@fortawesome/free-solid-svg-icons';
+
+const mockProducts = [
+  { id: '1', nombre: 'Preset Pack Vol. 1', precioUSD: 25, precioCOP: 100000, imagen: 'https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?w=500', descripcion: 'Colección de 50 presets premium para guitarra eléctrica.', categoria: 'musica', setMarco: 'c' },
+  { id: '2', nombre: 'Masterclass: Sweep Picking', precioUSD: 40, precioCOP: 160000, imagen: 'https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=500', descripcion: 'Curso intensivo de 2 horas sobre técnicas avanzadas.', categoria: 'merch', setMarco: 'a' },
+  { id: '3', nombre: 'Beats & Backing Tracks', precioUSD: 15, precioCOP: 60000, imagen: 'https://images.unsplash.com/photo-1614680376573-df3480f0c6ff?w=500', descripcion: 'Pack de 10 backing tracks en alta calidad (WAV).', categoria: 'musica', setMarco: 'd' }
+];
 
 const HomeStorePreview = () => {
-  const { t, lang } = useLanguage();
-  const [items, setItems] = useState<any[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const { addToCart } = useContext(CartContext);
 
-  useEffect(() => {
-    const fetchPreview = async () => {
-      try {
-        // 1. Buscamos ESTRICTAMENTE 1 item Académico
-        const academic = await pb.collection('tienda').getList(1, 1, {
-            filter: 'tipo = "academico"',
-            sort: '-created'
-        });
-
-        // 2. Buscamos ESTRICTAMENTE 1 item Merch
-        const merch = await pb.collection('tienda').getList(1, 1, {
-            filter: 'tipo = "merch"',
-            sort: '-created'
-        });
-
-        // 3. Combinamos los resultados (Si alguno está vacío, no se rompe)
-        const rawItems = [...academic.items, ...merch.items];
-        
-        const mapped = rawItems.map((i: any) => ({
-            ...i,
-            imagen_url: i.imagen ? pb.files.getUrl(i, i.imagen) : '/placeholder.jpg',
-            nombre_display: lang === 'EN' && i.nombre_en ? i.nombre_en : i.nombre,
-        }));
-
-        setItems(mapped);
-      } catch (e) {
-        console.error("Error preview tienda:", e);
-      }
-    };
-    fetchPreview();
-  }, [lang]);
-
-  if (items.length === 0) return null;
+  const handleAddToCart = (product: any) => {
+    addToCart(product);
+    setSelectedProduct(null);
+  };
 
   return (
-    <section className="py-16 bg-black border-t border-nardo-900/30">
-        <div className="max-w-5xl mx-auto px-4">
-            {/* Header Sección */}
-            <div className="flex justify-between items-end mb-10">
-                <h3 className="text-3xl font-serif font-bold text-white tracking-tighter">{t('latest_drops')}</h3>
-                <Link to="/tienda" className="hidden md:flex items-center gap-2 text-xs font-bold text-nardo-400 hover:text-white transition-colors uppercase tracking-widest">
-                    {t('explore_store')} <FontAwesomeIcon icon={faArrowRight} />
-                </Link>
+    <>
+      <style>{`
+        .card-container {
+            position: relative;
+            /* Padding para que los bordes no tapen el contenido */
+            padding: 45px 35px 25px 35px; 
+            margin-bottom: 3rem;
+            transition: transform 0.3s ease;
+        }
+        .card-container:hover { transform: translateY(-10px); }
+
+        /* BORDES (Imágenes Reales) */
+        .border-img-top {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 50px; /* Altura fija para evitar colapso */
+            object-fit: fill; 
+            z-index: 10;
+            pointer-events: none;
+        }
+        .border-img-left {
+            position: absolute;
+            top: 0; left: 0;
+            width: 30px; height: 100%; /* Ancho fijo */
+            object-fit: fill;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .border-img-right {
+            position: absolute;
+            top: 0; right: 0;
+            width: 30px; height: 100%;
+            object-fit: fill;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .card-bg {
+            position: absolute;
+            inset: 10px; /* Un poco adentro para asegurar que el borde tape la unión */
+            background: linear-gradient(180deg, rgba(20,0,40,0.95) 0%, rgba(5,0,10,0.98) 100%);
+            border: 1px solid rgba(255,255,255,0.05);
+            z-index: 1;
+        }
+
+        .card-content {
+            position: relative; z-index: 20; height: 100%; display: flex; flex-direction: column;
+        }
+
+        /* TEMA OSCURO */
+        html.tema-oscuro .card-bg { background: rgba(255, 255, 255, 0.9); box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
+        html.tema-oscuro .border-img-top,
+        html.tema-oscuro .border-img-left,
+        html.tema-oscuro .border-img-right { filter: grayscale(100%) brightness(0.2); }
+        html.tema-oscuro .card-title { color: #000; text-shadow: none; }
+        html.tema-oscuro .card-price { color: #444; font-weight: 800; }
+        html.tema-oscuro .card-cat { color: #666; }
+      `}</style>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-10 pt-8 pb-16 max-w-7xl mx-auto">
+        {mockProducts.map((prod) => (
+          <div key={prod.id} onClick={() => setSelectedProduct(prod)} className="card-container cursor-pointer group">
+            
+            {/* BORDES FLOTANTES */}
+            <img src={`/card-top-${prod.setMarco}.png`} className="border-img-top" alt="" />
+            <img src={`/card-left-${prod.setMarco}.png`} className="border-img-left" alt="" />
+            <img src={`/card-right-${prod.setMarco}.png`} className="border-img-right" alt="" />
+
+            <div className="card-bg"></div>
+
+            <div className="card-content">
+              <div className="h-52 overflow-hidden mb-4 border-b border-white/10 mx-auto w-full">
+                <img src={prod.imagen} alt={prod.nombre} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out" />
+              </div>
+              <div className="text-center flex-1 flex flex-col justify-between px-2">
+                <div>
+                    <span className="card-cat text-[9px] uppercase tracking-[0.2em] text-purple-400 font-bold mb-2 block opacity-80">{prod.categoria}</span>
+                    <h4 className="card-title font-espacial font-bold text-xl mb-2 text-white leading-tight drop-shadow-md">{prod.nombre}</h4>
+                </div>
+                <p className="card-price text-purple-300 font-mono text-lg mt-3">${prod.precioUSD} USD</p>
+              </div>
             </div>
+          </div>
+        ))}
+      </div>
 
-            {/* Grid 1 vs 1 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {items.map((item) => (
-                    <Link to="/tienda" key={item.id} className={`group relative block h-80 overflow-hidden rounded-2xl border transition-all duration-500 ${item.tipo === 'academico' ? 'border-cyan-900 hover:border-cyan-500' : 'border-purple-900 hover:border-purple-500'}`}>
-                        
-                        {/* Imagen Fondo */}
-                        <div className="absolute inset-0">
-                            <img src={item.imagen_url} alt={item.nombre} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 opacity-50 group-hover:opacity-30" />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent"></div>
-                        </div>
-
-                        {/* Etiqueta Flotante */}
-                        <div className="absolute top-4 right-4">
-                             <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest flex items-center gap-2 ${item.tipo === 'academico' ? 'bg-cyan-500 text-black' : 'bg-purple-500 text-white'}`}>
-                                <FontAwesomeIcon icon={item.tipo === 'academico' ? faGraduationCap : faShirt} />
-                                {item.tipo === 'academico' ? 'Academy' : 'Merch'}
-                            </span>
-                        </div>
-
-                        {/* Contenido Abajo */}
-                        <div className="absolute bottom-0 left-0 p-8 w-full">
-                            <h4 className={`text-2xl font-black text-white uppercase leading-none mb-2 transition-colors ${item.tipo === 'academico' ? 'group-hover:text-cyan-400' : 'group-hover:text-purple-400'}`}>
-                                {item.nombre_display}
-                            </h4>
-                            <p className="text-gray-400 text-xs font-bold tracking-widest uppercase">
-                                {t('view_details')} <FontAwesomeIcon icon={faArrowRight} className="ml-1"/>
-                            </p>
-                        </div>
-                    </Link>
-                ))}
+      {/* MODAL */}
+      {selectedProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="bg-[#120024] border border-purple-500 rounded-2xl p-6 w-full max-w-lg relative shadow-[0_0_40px_rgba(138,43,226,0.3)]">
+            <button onClick={() => setSelectedProduct(null)} className="absolute top-4 right-4 text-gray-400 hover:text-white">
+              <FontAwesomeIcon icon={faTimes} size="xl" />
+            </button>
+            <img src={selectedProduct.imagen} alt={selectedProduct.nombre} className="w-full h-64 object-cover rounded-lg mb-6 border border-white/10" />
+            <h2 className="text-2xl font-black uppercase tracking-wide mb-2 text-white font-espacial">{selectedProduct.nombre}</h2>
+            <p className="text-gray-300 mb-6 text-sm leading-relaxed">{selectedProduct.descripcion}</p>
+            <div className="flex justify-between items-center mb-6 bg-black/50 p-4 rounded-lg border border-purple-900/50">
+                 <p className="text-2xl font-mono font-bold text-purple-400">${selectedProduct.precioUSD} <span className="text-xs text-gray-500">USD</span></p>
             </div>
-
-            {/* Botón Móvil */}
-            <div className="mt-10 text-center md:hidden">
-                <Link to="/tienda" className="inline-flex items-center gap-2 text-xs font-bold text-nardo-400 hover:text-white transition-colors uppercase tracking-widest border border-nardo-900 px-8 py-3 rounded-full">
-                    {t('explore_store')} <FontAwesomeIcon icon={faArrowRight} />
-                </Link>
-            </div>
+            <button onClick={() => handleAddToCart(selectedProduct)} className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 rounded-lg uppercase tracking-widest transition-colors flex justify-center items-center gap-2">
+              <FontAwesomeIcon icon={faCartPlus} /> Agregar al Carrito
+            </button>
+          </div>
         </div>
-    </section>
+      )}
+    </>
   );
 };
-
 export default HomeStorePreview;

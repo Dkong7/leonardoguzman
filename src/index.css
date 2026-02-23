@@ -4,8 +4,27 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --bg-color: #333333; /* Gris sólido */
+  --nav-bg: rgba(51, 51, 51, 0.95); /* Gris transparente para Navbar */
+  --text-color: #f3f4f6;
+  --scroll-track: #262626;
+  --scroll-thumb: #525252;
+}
+
+[data-theme='purple'] {
+  --bg-color: #4c1d95; /* Morado sólido */
+  --nav-bg: rgba(76, 29, 149, 0.95); /* Morado transparente para Navbar */
+  --text-color: #f3f4f6;
+  --scroll-track: #3b0764;
+  --scroll-thumb: #7c3aed;
+}
+
 body {
-  @apply bg-nardo-950 text-nardo-100 antialiased;
+  background-color: var(--bg-color) !important;
+  color: var(--text-color) !important;
+  transition: background-color 0.3s ease, color 0.3s ease;
+  @apply antialiased;
 }
 
 /* Custom Scrollbar */
@@ -13,11 +32,12 @@ body {
   width: 8px;
 }
 ::-webkit-scrollbar-track {
-  @apply bg-nardo-950;
+  background-color: var(--scroll-track);
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-nardo-700 rounded;
+  background-color: var(--scroll-thumb);
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-nardo-500;
+  background-color: var(--text-color);
 }
