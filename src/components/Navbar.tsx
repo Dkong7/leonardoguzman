@@ -11,7 +11,8 @@ const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   
-  const { t } = useLanguage(); 
+  // Extraemos lang y toggleLanguage del contexto
+  const { t, lang, toggleLanguage } = useLanguage(); 
   const { theme, toggleTheme } = useContext(ThemeContext);
   const { cartTotal } = useContext(CartContext);
   const location = useLocation();
@@ -36,6 +37,7 @@ const Navbar = () => {
     { name: t('tour'), path: '/conciertos' },
     { name: t('store'), path: '/tienda' },
     { name: t('bio'), path: '/biografia' },
+    { name: 'BOOKING', path: '/booking' },
   ];
 
   const isActive = (path: string) => location.pathname === path;
@@ -44,12 +46,9 @@ const Navbar = () => {
     <nav className={`fixed top-0 left-0 w-full z-50 navbar-controller transition-all duration-300 ${scrolled ? 'pt-2' : 'pt-8'}`}>
       
       <style>{`
-        /* FUENTE ESPACIAL */
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap');
         
-        .font-espacial {
-          font-family: 'Orbitron', sans-serif;
-        }
+        .font-espacial { font-family: 'Orbitron', sans-serif; }
 
         .navbar-controller {
           --picos-top-pos-mobile: -30px;    
@@ -120,9 +119,6 @@ const Navbar = () => {
           100% { filter: drop-shadow(0 0 15px rgba(255,255,255,0.9)) drop-shadow(0 0 30px rgba(217,70,239,0.8)); }
         }
 
-        /* =======================================================
-           REGLAS DE TEMA OSCURO (FONDO GRIS CLARO, PICOS OSCUROS)
-           ======================================================= */
         html.tema-oscuro .navbar-main-block {
           background-color: #2a2a2a !important;
           box-shadow: 0 0 20px rgba(0,0,0,0.8) !important;
@@ -170,7 +166,6 @@ const Navbar = () => {
                 <Link 
                   key={link.path} 
                   to={link.path} 
-                  // CLASE font-espacial AÑADIDA AL MENÚ
                   className={`font-espacial text-[10px] font-black tracking-[0.2em] transition-all uppercase drop-shadow-sm ${isActive(link.path) ? 'text-white drop-shadow-[0_0_8px_#fff]' : 'text-purple-200 hover:text-white hover:scale-105'}`}
                 >
                   {link.name}
@@ -180,13 +175,16 @@ const Navbar = () => {
             
             <div className='flex flex-col items-end pl-6 border-l border-purple-400/30 ml-2 gap-2'>
                
-               {/* CONTENEDOR FILA 1 CON ALTURA FIJA PARA ALINEACIÓN PERFECTA */}
+               {/* FILA 1: Tema, Carrito, Botón Clases */}
                <div className='flex items-center justify-center gap-5 h-[32px]'>
-                 
                  <div className="flex items-center gap-4 h-full">
-                   <button onClick={toggleTheme} className="relative inline-flex h-4 w-8 items-center rounded-full border border-purple-400/50 cursor-pointer shadow-[0_0_10px_rgba(138,43,226,0.4)] transition-all shrink-0" style={{ backgroundColor: theme === 'purple' ? '#4c1d95' : '#374151' }}>
-                     <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow-sm transition-transform ${theme === 'purple' ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                   </button>
+                   
+                   {/* Botón TEMA (Círculo Único) */}
+                   <button 
+                     onClick={toggleTheme} 
+                     className={`w-4 h-4 rounded-full transition-all duration-500 border border-white/20 shadow-lg hover:scale-110 ${theme === 'purple' ? 'bg-purple-500 shadow-[0_0_10px_#a855f7]' : 'bg-[#333] shadow-[0_0_5px_#ffffff50]'}`}
+                     title={theme === 'purple' ? 'Modo Púrpura' : 'Modo Oscuro'}
+                   />
 
                    <Link to="/carrito" className="relative flex items-center justify-center text-purple-200 hover:text-white transition-all cursor-pointer hover:scale-105 h-full">
                       <FontAwesomeIcon icon={faShoppingCart} className="drop-shadow-[0_0_8px_rgba(217,70,239,0.6)] text-lg" />
@@ -196,13 +194,22 @@ const Navbar = () => {
                    </Link>
                  </div>
                  
-                 <a href='https://escuelademusikita.com' target='_blank' rel="noreferrer" className='font-espacial px-4 h-[30px] flex items-center justify-center border border-yellow-400 text-yellow-300 hover:bg-yellow-400 hover:text-black font-black text-[10px] tracking-[0.15em] rounded transition-all uppercase shadow-[0_0_15px_rgba(250,204,21,0.3)] hover:scale-105 active:scale-95 leading-none'>
+                 <Link to='/clases' className='font-espacial px-4 h-[30px] flex items-center justify-center border border-yellow-400 text-yellow-300 hover:bg-yellow-400 hover:text-black font-black text-[10px] tracking-[0.15em] rounded transition-all uppercase shadow-[0_0_15px_rgba(250,204,21,0.3)] hover:scale-105 active:scale-95 leading-none'>
                      CLASES
-                 </a>
+                 </Link>
                </div>
 
-               {/* FILA 2: Redes Sociales */}
+               {/* FILA 2: Idioma y Redes Sociales */}
                <div className='flex items-center gap-4 text-purple-300 pr-1'>
+                  
+                  {/* Botón IDIOMA */}
+                  <button 
+                    onClick={toggleLanguage} 
+                    className="font-espacial text-[10px] font-bold text-gray-400 hover:text-white transition-colors border-r border-gray-600 pr-3 cursor-pointer"
+                  >
+                    {lang === 'ES' ? 'EN' : 'ES'}
+                  </button>
+
                   <a href="https://instagram.com/leonardoguzman" target="_blank" rel="noreferrer" className="hover:text-white hover:scale-110 transition-all"><FontAwesomeIcon icon={faInstagram} size="sm" /></a>
                   <a href="https://youtube.com/leonardoguzman" target="_blank" rel="noreferrer" className="hover:text-white hover:scale-110 transition-all"><FontAwesomeIcon icon={faYoutube} size="sm" /></a>
                   <a href="https://spotify.com" target="_blank" rel="noreferrer" className="hover:text-white hover:scale-110 transition-all"><FontAwesomeIcon icon={faSpotify} size="sm" /></a>
@@ -216,19 +223,33 @@ const Navbar = () => {
         </div>
       </div>
 
-      {/* MENÚ MÓVIL (También con tipografía espacial) */}
       {isOpen && (
         <div className='md:hidden absolute w-full h-screen top-0 left-0 pt-28 px-6 space-y-6 z-40 bg-[#120024]/98 backdrop-blur-3xl'>
            {navLinks.map(link => (
              <Link 
-                key={link.path} 
-                to={link.path} 
-                onClick={() => setIsOpen(false)} 
-                className='font-espacial block text-xl font-black text-white border-b border-purple-800/50 pb-3 uppercase tracking-widest drop-shadow-[0_0_5px_rgba(217,70,239,0.6)]'
+               key={link.path} 
+               to={link.path} 
+               onClick={() => setIsOpen(false)} 
+               className='font-espacial block text-xl font-black text-white border-b border-purple-800/50 pb-3 uppercase tracking-widest drop-shadow-[0_0_5px_rgba(217,70,239,0.6)]'
              >
                {link.name}
              </Link>
            ))}
+           <Link 
+               to="/clases" 
+               onClick={() => setIsOpen(false)} 
+               className='font-espacial block text-xl font-black text-yellow-300 border-b border-yellow-500/50 pb-3 uppercase tracking-widest drop-shadow-[0_0_5px_rgba(250,204,21,0.6)]'
+           >
+               CLASES / DOJO
+           </Link>
+           
+           {/* Idioma Móvil */}
+           <button 
+             onClick={() => { toggleLanguage(); setIsOpen(false); }} 
+             className='font-espacial block text-xl font-black text-gray-400 border-b border-gray-700 pb-3 uppercase tracking-widest'
+           >
+             IDIOMA: {lang === 'ES' ? 'ESPAÑOL' : 'ENGLISH'}
+           </button>
         </div>
       )}
     </nav>

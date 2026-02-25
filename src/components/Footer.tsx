@@ -22,18 +22,24 @@ const Footer = () => {
   ];
 
   return (
-    // ELIMINADO: bg-black. Cambiado border-nardo-900 a border-gray-800 para neutralidad de tema.
     <footer className="py-12 border-t border-gray-800 relative mt-auto">
       <div className="max-w-7xl mx-auto px-4 text-center">
         <div className="flex flex-col justify-center items-center gap-4">
           
           <div className="text-gray-400 text-[10px] tracking-[0.3em] uppercase">
-             {t('copyright')}
+              {t('copyright')}
           </div>
           
-          <a href="https://www.thisiswillowtree.com" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-white text-[6px] font-bold tracking-widest transition-colors flex items-center gap-1">
-              {t('developed_by')} <span className="font-serif italic text-white text-[8px]">D</span>
+          {/* --- CRÉDITOS ACTUALIZADOS (4 Naranja Saturado) --- */}
+          <a 
+            href="https://www.thisiswillowtree.com" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-gray-600 hover:text-white text-[9px] uppercase font-bold tracking-widest transition-colors flex items-center gap-1 group"
+          >
+              Desarrollado por <span className="text-orange-600 group-hover:text-orange-500 transition-colors">4</span> de Willow Tree Media
           </a>
+
         </div>
       </div>
       

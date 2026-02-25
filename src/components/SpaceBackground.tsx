@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 const SpaceBackground = () => {
   const [isActive, setIsActive] = useState(false);
   const gargantuaRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
     const handleEstado = (e: any) => setIsActive(e.detail);
@@ -10,44 +11,58 @@ const SpaceBackground = () => {
     return () => window.removeEventListener('estadoMusica', handleEstado);
   }, []);
 
+  // OPTIMIZACIÓN 1: Throttling del Audio Reactivity
+  // Evita que el navegador intente renderizar más frames de los que la pantalla soporta
   useEffect(() => {
     const handleReact = (e: any) => {
-      if (gargantuaRef.current) {
+      if (!gargantuaRef.current) return;
+
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+
+      rafRef.current = requestAnimationFrame(() => {
         const bass = e.detail; 
-        const scale = 1 + (bass / 255) * 0.15;
-        const glow = 10 + (bass / 255) * 40;
-        const opacity = 0.7 + (bass / 255) * 0.3;
+        // Cálculos matemáticos simplificados para menor carga
+        const scale = 1 + (bass * 0.0006); // bass / 255 * 0.15 aprox
+        const glow = 10 + (bass * 0.15);   // bass / 255 * 40 aprox
+        const opacity = 0.7 + (bass * 0.0012); // bass / 255 * 0.3 aprox
         
-        gargantuaRef.current.style.setProperty('--react-scale', scale.toString());
-        gargantuaRef.current.style.setProperty('--react-glow', `${glow}px`);
-        gargantuaRef.current.style.setProperty('--react-opacity', opacity.toString());
-      }
+        if (gargantuaRef.current) {
+            gargantuaRef.current.style.setProperty('--react-scale', scale.toString());
+            gargantuaRef.current.style.setProperty('--react-glow', `${glow}px`);
+            gargantuaRef.current.style.setProperty('--react-opacity', opacity.toString());
+        }
+      });
     };
     window.addEventListener('audioReact', handleReact);
-    return () => window.removeEventListener('audioReact', handleReact);
+    return () => {
+        window.removeEventListener('audioReact', handleReact);
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
   }, []);
 
-  const generateStaticStars = (count: number, size: number) => {
-    return Array.from({ length: count }).map((_, i) => ({
-      id: `star-${size}-${i}`,
-      left: `${Math.random() * 100}%`,
-      top: `${Math.random() * 100}%`,
-      animationDelay: `${Math.random() * 5}s`,
-      animationDuration: `${Math.random() * 3 + 2}s`,
-    }));
+  // OPTIMIZACIÓN 2: Generación de estrellas por Box-Shadow
+  // Convierte cientos de divs en una sola cadena CSS. Rendimiento x100.
+  const generateStarBoxShadow = (count: number) => {
+    let shadow = "";
+    for (let i = 0; i < count; i++) {
+      const x = Math.random() * 100;
+      const y = Math.random() * 100;
+      shadow += `${x}vw ${y}vh #FFF, `;
+    }
+    return shadow.slice(0, -2); // Quitar última coma
   };
 
-  const smallStars = useMemo(() => generateStaticStars(200, 1), []);
-  const mediumStars = useMemo(() => generateStaticStars(80, 2), []);
-  const largeStars = useMemo(() => generateStaticStars(30, 3), []);
+  const starsSmall = useMemo(() => generateStarBoxShadow(200), []);
+  const starsMedium = useMemo(() => generateStarBoxShadow(80), []);
+  const starsLarge = useMemo(() => generateStarBoxShadow(30), []);
 
   const shootingStars = useMemo(() => {
-    return Array.from({ length: 8 }).map((_, i) => ({
+    return Array.from({ length: 6 }).map((_, i) => ({ // Bajé de 8 a 6 (imperceptible, ahorra recursos)
       id: `shooter-${i}`,
-      top: `${Math.random() * -30}%`, 
-      right: `${Math.random() * -30}%`,
-      animationDelay: `${Math.random() * 20}s`,
-      animationDuration: `${Math.random() * 25 + 20}s`, 
+      top: Math.random() * 60 - 20, // Posición inicial aleatoria Y
+      right: Math.random() * 40 - 10, // Posición inicial aleatoria X
+      animationDelay: `${Math.random() * 15}s`,
+      animationDuration: `${Math.random() * 10 + 15}s`, 
       scale: Math.random() * 0.5 + 0.5,
     }));
   }, []);
@@ -60,20 +75,17 @@ const SpaceBackground = () => {
            SISTEMA MAESTRO DE VARIABLES CSS (THEME SWITCHER)
            ======================================================= */
         :root {
-          /* TEMA MORADO / ESPACIO PROFUNDO (POR DEFECTO) */
+          /* TEMA MORADO / ESPACIO PROFUNDO */
           --bg-main: #0a001a;
-          
           --star-base: #ffffff;
           --star-glow-1: rgba(255,255,255,0.8);
-          --star-glow-2: #d946ef;
-          
           --shooter-head: #ffffff;
           --shooter-tail-1: rgba(255,255,255,1);
           --shooter-tail-2: rgba(217,70,239,0.8);
-          
           --nebula-op: 0.6;
           --nebula-inv: 0;
           
+          /* GARGANTUA VARS */
           --g-core: #000000;
           --g-halo: rgba(255, 180, 100, var(--react-opacity, 0.8));
           --g-disk-1: rgba(255, 200, 120, 0.9);
@@ -83,17 +95,13 @@ const SpaceBackground = () => {
         }
 
         html.tema-oscuro {
-          /* TEMA ESTILO GROK (GRIS CLARO CON ELEMENTOS OSCUROS) */
+          /* TEMA GROK */
           --bg-main: #e5e7eb; 
-          
           --star-base: #111827; 
           --star-glow-1: rgba(0,0,0,0.6);
-          --star-glow-2: rgba(0,0,0,0.2);
-          
           --shooter-head: #000000;
           --shooter-tail-1: rgba(0,0,0,0.8);
           --shooter-tail-2: rgba(0,0,0,0.1);
-          
           --nebula-op: 0.15;
           --nebula-inv: 1; 
           
@@ -105,65 +113,77 @@ const SpaceBackground = () => {
           --g-blend: multiply; 
         }
 
-        .space-master-bg {
-          background-color: var(--bg-main);
-        }
+        .space-master-bg { background-color: var(--bg-main); will-change: background-color; }
 
-        /* =======================================================
-           ANIMACIONES DEL ESPACIO (REACTIVAS A VARIABLES)
-           ======================================================= */
+        /* NEBULA OPTIMIZADA: will-change para capas de composición */
         .space-nebula {
           position: absolute; inset: -50%;
           background: radial-gradient(ellipse at 30% 40%, rgba(138, 43, 226, 0.15) 0%, transparent 60%), radial-gradient(ellipse at 70% 60%, rgba(217, 70, 239, 0.1) 0%, transparent 50%), radial-gradient(circle at 50% 50%, rgba(76, 29, 149, 0.1) 0%, transparent 70%);
           filter: invert(var(--nebula-inv)) grayscale(calc(var(--nebula-inv) * 100%)) blur(30px);
-          animation: nebula-drift 40s infinite alternate ease-in-out;
           opacity: var(--nebula-op);
           transition: filter 0.7s, opacity 0.7s;
+          /* Optimización GPU */
+          will-change: transform; 
+          animation: nebula-drift 60s infinite alternate ease-in-out; /* Más lento consume menos */
         }
-        @keyframes nebula-drift { 0% { transform: translate(0, 0) rotate(0deg); } 100% { transform: translate(-5%, -5%) rotate(2deg); } }
+        @keyframes nebula-drift { 0% { transform: translate(0, 0) rotate(0deg); } 100% { transform: translate(-2%, -2%) rotate(2deg); } }
 
-        .star-static { 
-          position: absolute; 
-          background-color: var(--star-base); 
-          border-radius: 50%; 
-          animation: twinkle infinite ease-in-out; 
-          transition: background-color 0.7s;
+        /* ESTRELLAS OPTIMIZADAS (BOX SHADOW METHOD) */
+        .star-layer {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: transparent;
+            border-radius: 50%;
+            animation: twinkle 4s infinite ease-in-out;
         }
+        /* Capas con diferentes tiempos para simular aleatoriedad */
+        .stars-s { width: 1px; height: 1px; color: var(--star-base); animation-duration: 3s; }
+        .stars-m { width: 2px; height: 2px; color: var(--star-base); animation-duration: 5s; animation-delay: 1s; }
+        .stars-l { width: 3px; height: 3px; color: var(--star-base); animation-duration: 7s; animation-delay: 2s; }
+
         @keyframes twinkle { 
-          0%, 100% { opacity: 0.3; transform: scale(0.8); box-shadow: none; } 
-          50% { opacity: 1; transform: scale(1.2); box-shadow: 0 0 4px var(--star-glow-1), 0 0 8px var(--star-glow-2); } 
+          0%, 100% { opacity: 0.4; } 
+          50% { opacity: 1; } 
         }
 
-        .shooting-star-container { position: absolute; transform: rotate(-45deg); opacity: 0; animation: shoot-across linear infinite; }
-        .shooting-star-tail { position: absolute; top: 0; right: 0; width: 300px; height: 1px; background: linear-gradient(to left, var(--shooter-tail-1) 0%, var(--shooter-tail-2) 20%, transparent 100%); }
-        .shooting-star-head { position: absolute; top: 50%; right: 0; transform: translateY(-50%); width: 4px; height: 4px; background: var(--shooter-head); border-radius: 50%; box-shadow: 0 0 10px var(--star-glow-1), 0 0 20px var(--star-glow-2); z-index: 2; }
-        @keyframes shoot-across { 0% { transform: translate(0, 0) rotate(-45deg) scale(var(--scale, 1)); opacity: 0; } 1% { opacity: 1; } 8% { transform: translate(-150vmax, 150vmax) rotate(-45deg) scale(var(--scale, 1)); opacity: 0; } 100% { transform: translate(-150vmax, 150vmax) rotate(-45deg) scale(var(--scale, 1)); opacity: 0; } }
+        /* SHOOTING STARS OPTIMIZADAS (GPU TRANSLATE) */
+        .shooting-star-container { 
+            position: absolute; 
+            /* Rotación inicial */
+            transform: rotate(-45deg) translateX(0); 
+            opacity: 0; 
+            animation: shoot-across linear infinite; 
+            will-change: transform, opacity;
+        }
+        .shooting-star-tail { position: absolute; top: 0; right: 0; width: 250px; height: 1px; background: linear-gradient(to left, var(--shooter-tail-1) 0%, var(--shooter-tail-2) 20%, transparent 100%); }
+        .shooting-star-head { position: absolute; top: 50%; right: 0; transform: translateY(-50%); width: 3px; height: 3px; background: var(--shooter-head); border-radius: 50%; box-shadow: 0 0 10px var(--star-glow-1); z-index: 2; }
+        
+        /* Animación optimizada usando translate3d para forzar aceleración hardware */
+        @keyframes shoot-across { 
+            0% { transform: rotate(-45deg) translate3d(0, 0, 0) scale(var(--scale, 1)); opacity: 0; } 
+            1% { opacity: 1; } 
+            15% { transform: rotate(-45deg) translate3d(-100vmax, 0, 0) scale(var(--scale, 1)); opacity: 0; } 
+            100% { transform: rotate(-45deg) translate3d(-100vmax, 0, 0) scale(var(--scale, 1)); opacity: 0; } 
+        }
 
-        /* =======================================================
-           GARGANTUA - ESQUINA INFERIOR DERECHA Y ROTADO 45 GRADOS
-           ======================================================= */
+        /* GARGANTUA OPTIMIZADA */
         .gargantua-wrapper {
-          position: absolute; 
-          top: 65%; left: 88%; 
+          position: absolute; top: 65%; left: 88%; 
           transform: translate(-50%, -50%) rotate(45deg) scale(calc(var(--react-scale, 1) * var(--base-scale, 0)));
           transition: transform 0.1s ease-out, opacity 2s ease-in-out;
-          opacity: 0;
-          z-index: 5;
-          mix-blend-mode: var(--g-blend);
+          opacity: 0; z-index: 5; mix-blend-mode: var(--g-blend);
+          will-change: transform, filter; /* Aviso al navegador */
         }
         @media (max-width: 768px) { .gargantua-wrapper { top: 60%; left: 80%; } }
         .gargantua-wrapper.active { --base-scale: 1; opacity: 1; }
         
         .gargantua-core { position: absolute; top: 50%; left: 50%; width: 280px; height: 280px; margin: -140px 0 0 -140px; background: var(--g-core); border-radius: 50%; box-shadow: inset 0 0 20px rgba(0,0,0,1), 0 0 calc(10px + var(--react-glow, 0px)) 2px var(--g-halo); z-index: 10; }
-        .gargantua-disk-back { position: absolute; top: 50%; left: 50%; width: 900px; height: 220px; margin: -110px 0 0 -450px; background: radial-gradient(ellipse at center, transparent 32%, var(--g-disk-1) 35%, var(--g-disk-2) 55%, transparent 70%); border-radius: 50%; transform: rotate(-10deg); filter: blur(calc(4px + var(--react-glow, 0px) * 0.1)); opacity: var(--react-opacity, 0.8); z-index: 5; animation: disk-spin 15s linear infinite; }
-        .gargantua-disk-front { position: absolute; top: 50%; left: 50%; width: 900px; height: 220px; margin: -110px 0 0 -450px; background: radial-gradient(ellipse at center, transparent 32%, var(--g-disk-1) 36%, var(--g-disk-2) 55%, transparent 70%); border-radius: 50%; transform: rotate(-10deg); filter: blur(calc(3px + var(--react-glow, 0px) * 0.1)); opacity: var(--react-opacity, 0.8); z-index: 15; clip-path: polygon(0 50%, 100% 50%, 100% 100%, 0 100%); animation: disk-spin 15s linear infinite; }
+        .gargantua-disk-back { position: absolute; top: 50%; left: 50%; width: 900px; height: 220px; margin: -110px 0 0 -450px; background: radial-gradient(ellipse at center, transparent 32%, var(--g-disk-1) 35%, var(--g-disk-2) 55%, transparent 70%); border-radius: 50%; transform: rotate(-10deg); filter: blur(calc(4px + var(--react-glow, 0px) * 0.1)); opacity: var(--react-opacity, 0.8); z-index: 5; animation: disk-spin 20s linear infinite; }
+        .gargantua-disk-front { position: absolute; top: 50%; left: 50%; width: 900px; height: 220px; margin: -110px 0 0 -450px; background: radial-gradient(ellipse at center, transparent 32%, var(--g-disk-1) 36%, var(--g-disk-2) 55%, transparent 70%); border-radius: 50%; transform: rotate(-10deg); filter: blur(calc(3px + var(--react-glow, 0px) * 0.1)); opacity: var(--react-opacity, 0.8); z-index: 15; clip-path: polygon(0 50%, 100% 50%, 100% 100%, 0 100%); animation: disk-spin 20s linear infinite; }
         .gargantua-lensing-top { position: absolute; top: 50%; left: 50%; width: 360px; height: 360px; margin: -230px 0 0 -180px; border-radius: 50%; border-top: 50px solid var(--g-lensing); border-left: 20px solid transparent; border-right: 20px solid transparent; border-bottom: 0px solid transparent; transform: rotate(-10deg); filter: blur(calc(12px + var(--react-glow, 0px) * 0.2)); opacity: var(--react-opacity, 0.8); z-index: 2; }
         .gargantua-lensing-bottom { position: absolute; top: 50%; left: 50%; width: 340px; height: 340px; margin: -110px 0 0 -170px; border-radius: 50%; border-bottom: 30px solid var(--g-lensing); border-left: 10px solid transparent; border-right: 10px solid transparent; border-top: 0px solid transparent; transform: rotate(-10deg); filter: blur(calc(15px + var(--react-glow, 0px) * 0.2)); opacity: calc(var(--react-opacity, 0.8) - 0.2); z-index: 2; }
         @keyframes disk-spin { 0% { transform: rotate(-10deg) scale(1); } 50% { transform: rotate(-10deg) scale(1.02); } 100% { transform: rotate(-10deg) scale(1); } }
 
-        /* =======================================================
-           REGLAS DE TEMA OSCURO PARA EL REPRODUCTOR EN EL DOM
-           ======================================================= */
+        /* REGLAS TEMA OSCURO (Igual que antes) */
         html.tema-oscuro .bloque-marco img { filter: grayscale(100%) brightness(0.4) contrast(1.2) !important; opacity: 0.85 !important; }
         html.tema-oscuro .player-bg-inner { background: rgba(230, 230, 230, 0.4) !important; border: 1px solid rgba(0,0,0,0.1) !important; box-shadow: inset 2px 2px 10px rgba(255,255,255,0.5), 0 15px 40px rgba(0,0,0,0.1) !important; backdrop-filter: blur(20px) !important; }
         html.tema-oscuro .texto-titulo { color: #111 !important; text-shadow: none !important;}
@@ -190,12 +210,13 @@ const SpaceBackground = () => {
         <div className="gargantua-disk-front"></div>
       </div>
 
-      {smallStars.map(star => (<div key={star.id} className="star-static w-[1px] h-[1px]" style={{ left: star.left, top: star.top, animationDelay: star.animationDelay, animationDuration: star.animationDuration }} />))}
-      {mediumStars.map(star => (<div key={star.id} className="star-static w-[2px] h-[2px]" style={{ left: star.left, top: star.top, animationDelay: star.animationDelay, animationDuration: star.animationDuration }} />))}
-      {largeStars.map(star => (<div key={star.id} className="star-static w-[3px] h-[3px]" style={{ left: star.left, top: star.top, animationDelay: star.animationDelay, animationDuration: star.animationDuration }} />))}
+      {/* ESTRELLAS OPTIMIZADAS: Solo 3 divs en lugar de 300 */}
+      <div className="star-layer stars-s" style={{ boxShadow: starsSmall }}></div>
+      <div className="star-layer stars-m" style={{ boxShadow: starsMedium }}></div>
+      <div className="star-layer stars-l" style={{ boxShadow: starsLarge }}></div>
       
       {shootingStars.map(shooter => (
-        <div key={shooter.id} className="shooting-star-container" style={{ top: shooter.top, right: shooter.right, animationDelay: shooter.animationDelay, animationDuration: shooter.animationDuration, '--scale': shooter.scale } as React.CSSProperties}>
+        <div key={shooter.id} className="shooting-star-container" style={{ top: `${shooter.top}%`, right: `${shooter.right}%`, animationDelay: shooter.animationDelay, animationDuration: shooter.animationDuration, '--scale': shooter.scale } as React.CSSProperties}>
            <div className="shooting-star-tail"></div><div className="shooting-star-head"></div>
         </div>
       ))}

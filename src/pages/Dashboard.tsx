@@ -1,284 +1,250 @@
-﻿import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect } from 'react';
 import pb from '../lib/pocketbase';
 import { useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
-    faMusic, faStore, faTicketAlt, faSignOutAlt, faPlus, faSave, 
-    faArrowLeft, faUpload, faCalendarAlt, faMapMarkerAlt, faLink, faDollarSign 
+    faMusic, faStore, faTicketAlt, faSignOutAlt, faUsers,
+    faChartLine, faSearch, faBell, faBoxOpen, faGuitar, faPlus
 } from '@fortawesome/free-solid-svg-icons';
+// Librería de Gráficas Profesional
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-type Tab = 'music' | 'gigs' | 'store';
+// Datos Simulados para la Gráfica (En producción esto vendría de una API de Analíticas)
+const analyticsData = [
+  { name: 'Lun', visitas: 400, ventas: 240 },
+  { name: 'Mar', visitas: 300, ventas: 139 },
+  { name: 'Mie', visitas: 200, ventas: 980 },
+  { name: 'Jue', visitas: 278, ventas: 390 },
+  { name: 'Vie', visitas: 189, ventas: 480 },
+  { name: 'Sab', visitas: 239, ventas: 380 },
+  { name: 'Dom', visitas: 349, ventas: 430 },
+];
+
+type Tab = 'overview' | 'music' | 'store' | 'users';
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<Tab>('store');
-  
-  // Referencias a inputs de archivos
-  const storeImageRef = useRef<HTMLInputElement>(null);
-  const musicCoverRef = useRef<HTMLInputElement>(null);
-  const musicAudioRef = useRef<HTMLInputElement>(null);
-  const gigImageRef = useRef<HTMLInputElement>(null);
-
-  // Estados generales
-  const [isLoading, setIsLoading] = useState(false);
-  const [statusMsg, setStatusMsg] = useState('');
-
-  // --- STORE STATES (Colección: tienda - Asumiendo campos estándar) ---
-  const [productName, setProductName] = useState('');
-  const [productPrice, setProductPrice] = useState('');
-  const [productDesc, setProductDesc] = useState('');
-  const [productType, setProductType] = useState('academico');
-
-  // --- MUSIC STATES (Colección: musica) ---
-  // Campos según tu imagen: titulo, artista, url_audio, audio (file), cover (file)
-  const [musicTitle, setMusicTitle] = useState('');
-  const [musicArtist, setMusicArtist] = useState('Leonardo Guzman'); // Default
-  const [musicUrl, setMusicUrl] = useState(''); // Para url_audio (Spotify/YT)
-
-  // --- GIGS STATES (Colección: conciertos) ---
-  // Campos según tu imagen: lugar, ciudad, fecha, link_tiquetes, precio, tipo, descripcion, imagen (file)
-  const [gigPlace, setGigPlace] = useState(''); // lugar
-  const [gigCity, setGigCity] = useState('');   // ciudad
-  const [gigDate, setGigDate] = useState('');   // fecha
-  const [gigLink, setGigLink] = useState('');   // link_tiquetes
-  const [gigPrice, setGigPrice] = useState(''); // precio
-  const [gigType, setGigType] = useState('live'); // tipo (live, academic)
-  const [gigDesc, setGigDesc] = useState('');   // descripcion
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [userList, setUserList] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
 
   useEffect(() => {
-    if (!pb.authStore.isValid) navigate('/nardonardonardo');
-  }, [navigate]);
+    if (!pb.authStore.isValid) navigate('/login');
+    
+    // Carga inicial de datos según Tab
+    if (activeTab === 'users') loadUsers();
+    if (activeTab === 'store') loadStore();
+  }, [activeTab, navigate]);
+
+  const loadUsers = async () => {
+      const records = await pb.collection('users').getFullList({ sort: '-created' });
+      setUserList(records);
+  };
+
+  const loadStore = async () => {
+      const records = await pb.collection('tienda').getFullList({ sort: '-created' });
+      setProducts(records);
+  };
 
   const handleLogout = () => {
       pb.authStore.clear();
       navigate('/');
   };
 
-  const showStatus = (msg: string, isError = false) => {
-      setStatusMsg(isError ? `Error: ${msg}` : msg);
-      setTimeout(() => setStatusMsg(''), 5000);
-  };
+  // --- UI COMPONENTS ---
+  const SidebarItem = ({ icon, label, id }: { icon: any, label: string, id: Tab }) => (
+      <button 
+          onClick={() => setActiveTab(id)}
+          className={`w-full flex items-center gap-4 p-4 text-sm font-bold transition-all border-l-4
+          ${activeTab === id 
+              ? 'border-orange-500 bg-[#252525] text-white' 
+              : 'border-transparent text-gray-500 hover:text-gray-300 hover:bg-[#1f1f1f]'}`}
+      >
+          <FontAwesomeIcon icon={icon} className={activeTab === id ? 'text-orange-500' : ''} />
+          {label}
+      </button>
+  );
 
-  // --- HANDLER: TIENDA ---
-  const handleCreateProduct = async (e: React.FormEvent) => {
-      e.preventDefault();
-      setIsLoading(true);
-      try {
-          const formData = new FormData();
-          formData.append('nombre', productName);
-          formData.append('precio_usd', productPrice); // Asumiendo que usas este campo para el precio base
-          formData.append('descripcion', productDesc);
-          formData.append('tipo', productType);
-          
-          if (storeImageRef.current?.files?.[0]) {
-              formData.append('imagen', storeImageRef.current.files[0]);
-          }
-          await pb.collection('tienda').create(formData);
-          showStatus('Producto creado correctamente.');
-          setProductName(''); setProductPrice(''); setProductDesc('');
-      } catch (err: any) { showStatus(err.message, true); } finally { setIsLoading(false); }
-  };
-
-  // --- HANDLER: MÚSICA (Ajustado a tu DB) ---
-  const handleCreateTrack = async (e: React.FormEvent) => {
-      e.preventDefault();
-      setIsLoading(true);
-      try {
-          const formData = new FormData();
-          formData.append('titulo', musicTitle);
-          formData.append('artista', musicArtist);
-          formData.append('url_audio', musicUrl); // Link externo si no hay archivo
-          
-          // Subir Cover
-          if (musicCoverRef.current?.files?.[0]) {
-              formData.append('cover', musicCoverRef.current.files[0]);
-          }
-          // Subir Audio (MP3/WAV)
-          if (musicAudioRef.current?.files?.[0]) {
-              formData.append('audio', musicAudioRef.current.files[0]);
-          }
-
-          await pb.collection('musica').create(formData);
-          showStatus('Track agregado correctamente.');
-          setMusicTitle(''); setMusicUrl('');
-      } catch (err: any) { showStatus(err.message, true); } finally { setIsLoading(false); }
-  };
-
-  // --- HANDLER: CONCIERTOS (Ajustado a tu DB) ---
-  const handleCreateGig = async (e: React.FormEvent) => {
-      e.preventDefault();
-      setIsLoading(true);
-      try {
-          const formData = new FormData();
-          formData.append('lugar', gigPlace);
-          formData.append('ciudad', gigCity);
-          formData.append('fecha', gigDate);
-          formData.append('link_tiquetes', gigLink);
-          formData.append('precio', gigPrice);
-          formData.append('tipo', gigType); // 'live' o 'academic'
-          formData.append('descripcion', gigDesc);
-          formData.append('activo', 'true');
-
-          if (gigImageRef.current?.files?.[0]) {
-              formData.append('imagen', gigImageRef.current.files[0]);
-          }
-
-          await pb.collection('conciertos').create(formData);
-          showStatus('Concierto agendado correctamente.');
-          setGigPlace(''); setGigCity(''); setGigLink(''); setGigDesc('');
-      } catch (err: any) { showStatus(err.message, true); } finally { setIsLoading(false); }
-  };
-
-  // Estilos reutilizables
-  const InputClass = "w-full bg-black border border-gray-700 p-3 rounded text-white focus:border-nardo-500 outline-none transition-colors placeholder-gray-600";
-  const LabelClass = "block text-xs uppercase text-gray-500 mb-2 font-bold tracking-wider";
-  const ButtonClass = "bg-nardo-600 hover:bg-nardo-500 text-white px-8 py-3 rounded font-bold uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg shadow-nardo-900/20 disabled:opacity-50";
+  const StatCard = ({ title, value, change }: { title: string, value: string, change: string }) => (
+      <div className="bg-[#1e1e1e] p-6 rounded border border-[#333] shadow-lg">
+          <h3 className="text-gray-500 text-xs uppercase tracking-widest font-bold mb-2">{title}</h3>
+          <div className="flex justify-between items-end">
+              <span className="text-3xl font-bold text-white">{value}</span>
+              <span className="text-xs font-bold text-green-500 bg-green-900/20 px-2 py-1 rounded border border-green-900/30">{change}</span>
+          </div>
+      </div>
+  );
 
   return (
-    <div className="min-h-screen bg-[#080808] text-gray-200 font-sans flex">
+    <div className="min-h-screen bg-[#121212] text-gray-200 font-sans flex overflow-hidden">
        
        {/* SIDEBAR */}
-       <aside className="w-64 border-r border-gray-800 bg-black/50 hidden md:flex flex-col fixed h-full z-20">
-          <div className="p-8 border-b border-gray-800">
-             <h1 className="text-xl font-bold text-nardo-500 tracking-widest">NARDO<span className="text-white">OS</span></h1>
-             <p className="text-xs text-gray-500 mt-2">v2.1.0 - Admin</p>
+       <aside className="w-64 bg-[#181818] border-r border-[#333] hidden md:flex flex-col z-20">
+          <div className="p-8 flex items-center gap-3 border-b border-[#222]">
+             <div className="w-8 h-8 bg-orange-600 rounded flex items-center justify-center font-bold text-black shadow-lg shadow-orange-900/20">K</div>
+             <div>
+                 <h1 className="text-lg font-bold text-white tracking-wide">KONG<span className="text-orange-500">OS</span></h1>
+                 <p className="text-[10px] text-gray-600 font-mono tracking-widest">GUITARROSIS ADMIN</p>
+             </div>
           </div>
-          <nav className="flex-1 p-4 space-y-2">
-             <button onClick={() => setActiveTab('store')} className={`w-full text-left p-3 rounded transition-all flex items-center gap-3 ${activeTab === 'store' ? 'bg-nardo-900 text-white border border-nardo-700' : 'text-gray-500 hover:bg-gray-900'}`}>
-                <FontAwesomeIcon icon={faStore} /> Tienda
-             </button>
-             <button onClick={() => setActiveTab('music')} className={`w-full text-left p-3 rounded transition-all flex items-center gap-3 ${activeTab === 'music' ? 'bg-nardo-900 text-white border border-nardo-700' : 'text-gray-500 hover:bg-gray-900'}`}>
-                <FontAwesomeIcon icon={faMusic} /> Música
-             </button>
-             <button onClick={() => setActiveTab('gigs')} className={`w-full text-left p-3 rounded transition-all flex items-center gap-3 ${activeTab === 'gigs' ? 'bg-nardo-900 text-white border border-nardo-700' : 'text-gray-500 hover:bg-gray-900'}`}>
-                <FontAwesomeIcon icon={faTicketAlt} /> Conciertos
-             </button>
+
+          <nav className="flex-1 mt-6">
+             <div className="px-6 mb-4 text-[10px] font-bold text-gray-600 uppercase tracking-widest">Analytics & CRM</div>
+             <SidebarItem id="overview" icon={faChartLine} label="Dashboard" />
+             <SidebarItem id="users" icon={faUsers} label="Estudiantes" />
+             
+             <div className="px-6 mb-4 mt-8 text-[10px] font-bold text-gray-600 uppercase tracking-widest">CMS & Content</div>
+             <SidebarItem id="store" icon={faStore} label="Tienda & Merch" />
+             <SidebarItem id="music" icon={faMusic} label="Discografía" />
           </nav>
-          <div className="p-4 border-t border-gray-800">
-             <button onClick={() => navigate('/')} className="w-full text-left p-2 text-xs text-gray-500 hover:text-white flex items-center gap-2 mb-2">
-                <FontAwesomeIcon icon={faArrowLeft} /> Volver a Web
-             </button>
-             <button onClick={handleLogout} className="w-full text-left p-2 text-xs text-red-500 hover:text-red-400 flex items-center gap-2">
-                <FontAwesomeIcon icon={faSignOutAlt} /> Cerrar Sesión
+
+          <div className="p-4 border-t border-[#333]">
+             <button onClick={handleLogout} className="flex items-center gap-3 text-xs font-bold text-gray-500 hover:text-orange-500 transition-colors w-full p-2">
+                <FontAwesomeIcon icon={faSignOutAlt} /> LOGOUT
              </button>
           </div>
        </aside>
 
-       {/* MAIN CONTENT */}
-       <main className="flex-1 p-8 md:ml-64 overflow-y-auto">
+       {/* MAIN AREA */}
+       <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
           
-          <header className="mb-8 flex justify-between items-center md:hidden">
-             <h2 className="text-xl font-bold text-nardo-500">NARDO OS</h2>
-             <button onClick={handleLogout}><FontAwesomeIcon icon={faSignOutAlt} /></button>
+          {/* TOP BAR */}
+          <header className="h-16 bg-[#181818] border-b border-[#333] flex justify-between items-center px-8">
+              <h2 className="text-white font-bold uppercase tracking-wider text-sm">{activeTab} VIEW</h2>
+              <div className="flex items-center gap-6">
+                  <div className="relative cursor-pointer hover:text-white text-gray-500 transition-colors">
+                      <FontAwesomeIcon icon={faBell} />
+                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-orange-500 rounded-full border border-[#181818]"></span>
+                  </div>
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-gray-700 to-gray-600 border border-gray-500 flex items-center justify-center text-white font-bold text-xs">
+                      LG
+                  </div>
+              </div>
           </header>
 
-          {statusMsg && (
-              <div className={`p-4 mb-6 rounded border ${statusMsg.includes('Error') ? 'bg-red-900/30 border-red-800 text-red-200' : 'bg-green-900/30 border-green-800 text-green-200'}`}>
-                  {statusMsg}
-              </div>
-          )}
-
-          {/* --- TAB: TIENDA --- */}
-          {activeTab === 'store' && (
-             <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <h2 className="text-3xl font-serif italic text-white mb-6 border-b border-gray-800 pb-4">Gestión de Tienda</h2>
-                <div className="bg-[#111] border border-gray-800 rounded-xl p-8 shadow-2xl">
-                   <h3 className="text-lg text-nardo-400 mb-6 flex items-center gap-2"><FontAwesomeIcon icon={faPlus} /> Agregar Producto</h3>
-                   <form onSubmit={handleCreateProduct} className="space-y-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div><label className={LabelClass}>Nombre</label><input required type="text" value={productName} onChange={e => setProductName(e.target.value)} className={InputClass} /></div>
-                          <div><label className={LabelClass}>Precio Base (COP)</label><input required type="number" value={productPrice} onChange={e => setProductPrice(e.target.value)} className={InputClass} /></div>
-                      </div>
-                      <div>
-                          <label className={LabelClass}>Tipo</label>
-                          <select value={productType} onChange={e => setProductType(e.target.value)} className={InputClass}>
-                              <option value="academico">Académico</option>
-                              <option value="merch">Merch</option>
-                          </select>
-                      </div>
-                      <div><label className={LabelClass}>Descripción</label><textarea required value={productDesc} onChange={e => setProductDesc(e.target.value)} rows={3} className={InputClass}></textarea></div>
-                      
-                      <div className="border-2 border-dashed border-gray-700 rounded-lg p-6 text-center hover:border-nardo-500 transition-colors">
-                          <input type="file" ref={storeImageRef} className="hidden" id="store-upload" />
-                          <label htmlFor="store-upload" className="cursor-pointer flex flex-col items-center gap-2"><FontAwesomeIcon icon={faUpload} className="text-2xl text-gray-500" /><span className="text-sm text-gray-400">Imagen del Producto</span></label>
+          {/* SCROLLABLE CONTENT */}
+          <div className="flex-1 overflow-y-auto p-8">
+              
+              {/* --- VISTA: OVERVIEW (ANALYTICS) --- */}
+              {activeTab === 'overview' && (
+                  <div className="space-y-8 animate-in fade-in duration-500">
+                      {/* KPI CARDS */}
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                          <StatCard title="Estudiantes Activos" value="342" change="+12%" />
+                          <StatCard title="Ingresos (Mes)" value="$4,200" change="+8.5%" />
+                          <StatCard title="Tráfico Web" value="12.5k" change="+24%" />
+                          <StatCard title="Conversión Tienda" value="3.2%" change="+1.1%" />
                       </div>
 
-                      <button disabled={isLoading} type="submit" className={ButtonClass}>{isLoading ? 'Guardando...' : 'Guardar Producto'}</button>
-                   </form>
-                </div>
-             </div>
-          )}
-
-          {/* --- TAB: MUSICA --- */}
-          {activeTab === 'music' && (
-              <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  <h2 className="text-3xl font-serif italic text-white mb-6 border-b border-gray-800 pb-4">Gestión de Música</h2>
-                  <div className="bg-[#111] border border-gray-800 rounded-xl p-8 shadow-2xl">
-                      <h3 className="text-lg text-nardo-400 mb-6 flex items-center gap-2"><FontAwesomeIcon icon={faMusic} /> Agregar Track</h3>
-                      <form onSubmit={handleCreateTrack} className="space-y-6">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <div><label className={LabelClass}>Título</label><input required type="text" value={musicTitle} onChange={e => setMusicTitle(e.target.value)} className={InputClass} /></div>
-                              <div><label className={LabelClass}>Artista</label><input required type="text" value={musicArtist} onChange={e => setMusicArtist(e.target.value)} className={InputClass} /></div>
+                      {/* CHART GOOGLE ANALYTICS STYLE */}
+                      <div className="bg-[#1e1e1e] border border-[#333] rounded p-6 shadow-lg h-[400px]">
+                          <div className="flex justify-between items-center mb-6">
+                              <h3 className="text-white font-bold flex items-center gap-2">
+                                  <FontAwesomeIcon icon={faChartLine} className="text-orange-500" />
+                                  Tráfico de Sesiones
+                              </h3>
+                              <select className="bg-[#252525] text-xs text-white border border-[#444] rounded p-1 outline-none">
+                                  <option>Últimos 7 días</option>
+                                  <option>Últimos 30 días</option>
+                              </select>
                           </div>
-                          
-                          <div><label className={LabelClass}><FontAwesomeIcon icon={faLink} /> Link Externo (Spotify/YouTube)</label><input type="url" value={musicUrl} onChange={e => setMusicUrl(e.target.value)} className={InputClass} placeholder="https://..." /></div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="border-2 border-dashed border-gray-700 rounded-lg p-6 text-center hover:border-nardo-500 transition-colors">
-                                <input type="file" ref={musicCoverRef} className="hidden" id="cover-upload" />
-                                <label htmlFor="cover-upload" className="cursor-pointer flex flex-col items-center gap-2"><FontAwesomeIcon icon={faUpload} className="text-2xl text-gray-500" /><span className="text-sm text-gray-400">Subir Carátula (Cover)</span></label>
-                            </div>
-                            <div className="border-2 border-dashed border-gray-700 rounded-lg p-6 text-center hover:border-green-500 transition-colors">
-                                <input type="file" ref={musicAudioRef} className="hidden" id="audio-upload" accept="audio/*" />
-                                <label htmlFor="audio-upload" className="cursor-pointer flex flex-col items-center gap-2"><FontAwesomeIcon icon={faMusic} className="text-2xl text-gray-500" /><span className="text-sm text-gray-400">Subir Archivo de Audio</span></label>
-                            </div>
-                          </div>
-
-                          <button disabled={isLoading} type="submit" className={ButtonClass}>{isLoading ? 'Subiendo...' : 'Guardar Música'}</button>
-                      </form>
+                          <ResponsiveContainer width="100%" height="90%">
+                              <AreaChart data={analyticsData}>
+                                  <defs>
+                                      <linearGradient id="colorVisitas" x1="0" y1="0" x2="0" y2="1">
+                                          <stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/>
+                                          <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
+                                      </linearGradient>
+                                  </defs>
+                                  <XAxis dataKey="name" stroke="#555" tick={{fill: '#888', fontSize: 11}} tickLine={false} axisLine={false} />
+                                  <YAxis stroke="#555" tick={{fill: '#888', fontSize: 11}} tickLine={false} axisLine={false} />
+                                  <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
+                                  <Tooltip 
+                                      contentStyle={{ backgroundColor: '#181818', border: '1px solid #333', color: '#fff', borderRadius: '4px' }} 
+                                      itemStyle={{ color: '#f97316' }}
+                                  />
+                                  <Area type="monotone" dataKey="visitas" stroke="#f97316" strokeWidth={3} fillOpacity={1} fill="url(#colorVisitas)" />
+                              </AreaChart>
+                          </ResponsiveContainer>
+                      </div>
                   </div>
-              </div>
-          )}
+              )}
 
-          {/* --- TAB: CONCIERTOS --- */}
-          {activeTab === 'gigs' && (
-              <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  <h2 className="text-3xl font-serif italic text-white mb-6 border-b border-gray-800 pb-4">Gestión de Conciertos</h2>
-                  <div className="bg-[#111] border border-gray-800 rounded-xl p-8 shadow-2xl">
-                      <h3 className="text-lg text-nardo-400 mb-6 flex items-center gap-2"><FontAwesomeIcon icon={faTicketAlt} /> Nueva Fecha</h3>
-                      <form onSubmit={handleCreateGig} className="space-y-6">
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                              <div><label className={LabelClass}><FontAwesomeIcon icon={faCalendarAlt} /> Fecha y Hora</label><input required type="datetime-local" value={gigDate} onChange={e => setGigDate(e.target.value)} className={InputClass} /></div>
-                              <div><label className={LabelClass}><FontAwesomeIcon icon={faMapMarkerAlt} /> Ciudad</label><input required type="text" value={gigCity} onChange={e => setGigCity(e.target.value)} className={InputClass} /></div>
-                              <div><label className={LabelClass}>Lugar (Venue)</label><input required type="text" value={gigPlace} onChange={e => setGigPlace(e.target.value)} className={InputClass} /></div>
+              {/* --- VISTA: USUARIOS --- */}
+              {activeTab === 'users' && (
+                  <div className="bg-[#1e1e1e] border border-[#333] rounded overflow-hidden animate-in fade-in">
+                      <div className="p-4 border-b border-[#333] flex justify-between items-center bg-[#252525]">
+                          <h3 className="font-bold text-white">Base de Estudiantes</h3>
+                          <div className="relative">
+                              <input type="text" placeholder="Buscar estudiante..." className="bg-[#111] border border-[#444] text-white text-xs p-2 pl-8 rounded w-64 focus:border-orange-500 outline-none" />
+                              <FontAwesomeIcon icon={faSearch} className="absolute left-2.5 top-2.5 text-gray-500 text-xs" />
                           </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <div><label className={LabelClass}>Tipo</label>
-                                    <select value={gigType} onChange={e => setGigType(e.target.value)} className={InputClass}>
-                                        <option value="live">Live Show</option>
-                                        <option value="academic">Masterclass / Taller</option>
-                                    </select>
-                                </div>
-                                <div><label className={LabelClass}><FontAwesomeIcon icon={faDollarSign} /> Precio</label><input type="number" value={gigPrice} onChange={e => setGigPrice(e.target.value)} className={InputClass} placeholder="0 si es gratis" /></div>
-                                <div><label className={LabelClass}><FontAwesomeIcon icon={faLink} /> Link Tiquetes</label><input type="url" value={gigLink} onChange={e => setGigLink(e.target.value)} className={InputClass} placeholder="https://..." /></div>
-                          </div>
-
-                          <div><label className={LabelClass}>Descripción del Evento</label><textarea value={gigDesc} onChange={e => setGigDesc(e.target.value)} rows={2} className={InputClass} placeholder="Detalles extra..."></textarea></div>
-
-                          <div className="border-2 border-dashed border-gray-700 rounded-lg p-6 text-center hover:border-nardo-500 transition-colors">
-                              <input type="file" ref={gigImageRef} className="hidden" id="gig-upload" />
-                              <label htmlFor="gig-upload" className="cursor-pointer flex flex-col items-center gap-2"><FontAwesomeIcon icon={faUpload} className="text-2xl text-gray-500" /><span className="text-sm text-gray-400">Flyer / Imagen del Evento</span></label>
-                          </div>
-
-                          <button disabled={isLoading} type="submit" className={ButtonClass}>{isLoading ? 'Agendando...' : 'Publicar Concierto'}</button>
-                      </form>
+                      </div>
+                      <table className="w-full text-left border-collapse">
+                          <thead className="bg-[#181818] text-gray-500 text-[10px] uppercase font-bold tracking-wider">
+                              <tr>
+                                  <th className="p-4 border-b border-[#333]">Usuario</th>
+                                  <th className="p-4 border-b border-[#333]">Email</th>
+                                  <th className="p-4 border-b border-[#333]">Nivel</th>
+                                  <th className="p-4 border-b border-[#333]">Membresía</th>
+                                  <th className="p-4 border-b border-[#333] text-right">Estado</th>
+                              </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#333] text-sm">
+                              {userList.map((user) => (
+                                  <tr key={user.id} className="hover:bg-[#252525] transition-colors group">
+                                      <td className="p-4 flex items-center gap-3">
+                                          <div className="w-8 h-8 bg-[#333] rounded-full flex items-center justify-center text-orange-500 font-bold text-xs group-hover:bg-orange-600 group-hover:text-white transition-colors">
+                                              {user.username.substring(0,2).toUpperCase()}
+                                          </div>
+                                          <span className="text-white font-medium">{user.username}</span>
+                                      </td>
+                                      <td className="p-4 text-gray-400">{user.email}</td>
+                                      <td className="p-4">
+                                          <div className="flex items-center gap-2">
+                                              <div className="w-full bg-[#333] rounded-full h-1.5 w-16">
+                                                  <div className="bg-orange-500 h-1.5 rounded-full" style={{width: '45%'}}></div>
+                                              </div>
+                                              <span className="text-xs text-gray-500">Lvl 4</span>
+                                          </div>
+                                      </td>
+                                      <td className="p-4"><span className="text-[10px] border border-orange-900/50 text-orange-400 bg-orange-900/10 px-2 py-1 rounded">PRO</span></td>
+                                      <td className="p-4 text-right">
+                                          <span className="text-[10px] text-green-500 font-bold">● ACTIVO</span>
+                                      </td>
+                                  </tr>
+                              ))}
+                          </tbody>
+                      </table>
                   </div>
-              </div>
-          )}
+              )}
 
+              {/* --- VISTA: STORE --- */}
+              {activeTab === 'store' && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in">
+                      {products.map((prod) => (
+                          <div key={prod.id} className="bg-[#1e1e1e] border border-[#333] rounded p-4 flex gap-4 hover:border-orange-500/50 transition-colors">
+                              <div className="w-20 h-20 bg-[#111] rounded flex items-center justify-center text-gray-600">
+                                  {prod.imagen ? <img src={pb.files.getUrl(prod, prod.imagen)} className="w-full h-full object-cover rounded" /> : <FontAwesomeIcon icon={faBoxOpen} size="lg" />}
+                              </div>
+                              <div className="flex-1">
+                                  <h4 className="text-white font-bold truncate">{prod.nombre}</h4>
+                                  <p className="text-xs text-gray-500 mb-2 uppercase tracking-wider">{prod.tipo}</p>
+                                  <p className="text-orange-500 font-bold">${prod.precio_usd} USD</p>
+                              </div>
+                          </div>
+                      ))}
+                      <div className="border-2 border-dashed border-[#333] rounded flex flex-col items-center justify-center text-gray-500 hover:border-orange-500 hover:text-orange-500 cursor-pointer transition-all h-32 md:h-auto">
+                          <FontAwesomeIcon icon={faPlus} className="text-2xl mb-2" />
+                          <span className="text-xs font-bold uppercase">Agregar Producto</span>
+                      </div>
+                  </div>
+              )}
+
+          </div>
        </main>
     </div>
   );
 };
+
 export default Dashboard;

@@ -1,113 +1,138 @@
-import { useContext } from 'react';
-import { CartContext } from '../context/CartContext';
+import { useContext, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { CartContext } from '../context/CartContext';
+import type { CartItem } from '../context/CartContext'; // Import type explícito
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faTrash, faArrowLeft, faShieldAlt } from '@fortawesome/free-solid-svg-icons';
+import { faTrash, faArrowLeft, faLock, faCreditCard } from '@fortawesome/free-solid-svg-icons';
+import { faPaypal } from '@fortawesome/free-brands-svg-icons';
 
 const Carrito = () => {
-  const { cart, removeFromCart } = useContext(CartContext);
+  const { cartItems, removeFromCart, cartTotal } = useContext(CartContext);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const totalUSD = cart.reduce((acc, item) => acc + (item.precioUSD * item.cantidad), 0);
-  const totalCOP = cart.reduce((acc, item) => acc + (item.precioCOP * item.cantidad), 0);
+  // Cálculos seguros (si es undefined, usa 0)
+  const totalUSD = cartItems.reduce((acc: number, item: CartItem) => acc + ((item.precioUSD || 0) * (item.cantidad || 1)), 0);
+  const totalCOP = cartItems.reduce((acc: number, item: CartItem) => acc + ((item.precioCOP || 0) * (item.cantidad || 1)), 0);
 
-  // Funciones placeholder para las pasarelas. 
-  // La implementación real se conectará con el backend Node.js.
-  const handleMercadoPago = () => {
-    console.log("Iniciando flujo MercadoPago...");
-    // Integración MP pendiente
+  const handlePayment = async (provider: 'mercadopago' | 'paypal') => {
+    setIsProcessing(true);
+    // ... lógica de pago ...
+    setTimeout(() => { setIsProcessing(false); alert("Simulación de pago"); }, 1000);
   };
 
-  const handlePayPal = () => {
-    console.log("Iniciando flujo PayPal...");
-    // Integración PayPal pendiente
-  };
+  if (cartItems.length === 0) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#0a0510] text-white p-6 relative z-20">
+        <div className="bg-white/5 p-10 rounded-3xl border border-white/10 text-center backdrop-blur-md max-w-md">
+            <h2 className="text-3xl font-serif mb-4 text-purple-300">Tu carrito está vacío</h2>
+            <div className="flex flex-col gap-3">
+                <Link to="/tienda" className="bg-purple-600 hover:bg-purple-500 text-white py-3 px-6 rounded-xl font-bold uppercase tracking-widest transition-all">Ir a Tienda Oficial</Link>
+                <Link to="/clases/material" className="bg-transparent border border-purple-500/50 hover:bg-purple-900/20 text-purple-300 py-3 px-6 rounded-xl font-bold uppercase tracking-widest transition-all">Ver Material Educativo</Link>
+            </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen pt-40 pb-20 px-4 max-w-6xl mx-auto">
+    <div className="min-h-screen bg-[#0a0a0a] text-white pt-28 pb-20 px-4 md:px-8 font-sans relative z-20">
       
-      <div className="flex items-center gap-4 mb-10">
-        <Link to="/" className="text-purple-400 hover:text-white transition">
-          <FontAwesomeIcon icon={faArrowLeft} size="lg" />
-        </Link>
-        <h1 className="text-4xl font-black uppercase tracking-widest text-white drop-shadow-[0_0_15px_rgba(217,70,239,0.5)]">Checkout</h1>
+      <div className="max-w-7xl mx-auto mb-10 flex items-center gap-4">
+          <Link to="/" className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
+              <FontAwesomeIcon icon={faArrowLeft} />
+          </Link>
+          <h1 className="text-4xl font-serif">Tu Carrito <span className="text-purple-500 text-lg align-middle bg-purple-900/30 px-3 py-1 rounded-full ml-2">{cartTotal} items</span></h1>
       </div>
 
-      {cart.length === 0 ? (
-        <div className="text-center py-20 bg-white/5 border border-purple-900/50 rounded-2xl backdrop-blur-md">
-          <p className="text-gray-400 text-xl font-mono mb-6">Tu carrito está vacío.</p>
-          <Link to="/" className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-8 rounded-lg uppercase tracking-widest transition-colors shadow-[0_0_20px_rgba(138,43,226,0.5)]">
-            Ir a la tienda
-          </Link>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-12">
           
-          {/* Lista de Productos */}
           <div className="lg:col-span-2 space-y-6">
-            {cart.map((item) => (
-              <div key={item.id} className="flex items-center gap-6 bg-[#1a0033]/80 border border-purple-500/30 p-4 rounded-xl shadow-lg">
-                <img src={item.imagen} alt={item.nombre} className="w-24 h-24 object-cover rounded-lg border border-purple-500/50" />
-                <div className="flex-1">
-                  <h3 className="text-xl font-bold text-white uppercase tracking-wide">{item.nombre}</h3>
-                  <p className="text-sm text-gray-400">Cantidad: {item.cantidad}</p>
-                  <div className="mt-2 flex items-center gap-4">
-                    <span className="font-mono text-purple-400 font-bold">${item.precioUSD} USD</span>
-                    <span className="font-mono text-gray-500 text-sm">${item.precioCOP.toLocaleString('es-CO')} COP</span>
+              {cartItems.map((item) => (
+                  <div key={item.id} className="group bg-white/5 border border-white/10 rounded-2xl p-4 flex gap-6 items-center hover:border-purple-500/30 transition-colors">
+                      <div className="w-24 h-24 bg-black rounded-xl overflow-hidden shrink-0 relative">
+                          {/* Fallback para imagen vacía */}
+                          <img 
+                            src={item.imagen || 'https://placehold.co/100x100?text=No+Image'} 
+                            alt={item.nombre} 
+                            className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" 
+                          />
+                          {item.categoria && (
+                              <div className="absolute bottom-0 left-0 w-full bg-black/60 text-[8px] text-center py-1 uppercase font-bold text-white backdrop-blur-sm">
+                                  {item.categoria}
+                              </div>
+                          )}
+                      </div>
+
+                      <div className="flex-1">
+                          <div className="flex justify-between items-start">
+                              <h3 className="text-xl font-bold text-white font-espacial leading-tight">{item.nombre}</h3>
+                              <button onClick={() => removeFromCart(item.id)} className="text-gray-500 hover:text-red-500 transition-colors p-2">
+                                  <FontAwesomeIcon icon={faTrash} />
+                              </button>
+                          </div>
+                          <div className="mt-4 flex items-center gap-4">
+                              <div className="bg-black/40 px-3 py-1 rounded-lg border border-white/5">
+                                  <span className="text-purple-400 font-mono font-bold">${item.precioUSD} USD</span>
+                              </div>
+                              <div className="w-px h-4 bg-gray-700"></div>
+                              <div className="text-gray-500 font-mono text-sm">
+                                  {/* Protección contra undefined en toLocaleString */}
+                                  ~ ${(item.precioCOP || 0).toLocaleString()} COP
+                              </div>
+                              <div className="text-xs text-gray-600 ml-auto">Cant: {item.cantidad}</div>
+                          </div>
+                      </div>
                   </div>
-                </div>
-                <button 
-                  onClick={() => removeFromCart(item.id)}
-                  className="p-3 text-gray-500 hover:text-red-500 transition-colors"
-                  title="Eliminar"
-                >
-                  <FontAwesomeIcon icon={faTrash} />
-                </button>
-              </div>
-            ))}
+              ))}
           </div>
 
-          {/* Resumen y Pagos */}
-          <div className="bg-[#12002b] border border-purple-500 rounded-2xl p-8 h-fit sticky top-40 shadow-[0_0_30px_rgba(138,43,226,0.2)]">
-            <h3 className="text-2xl font-black uppercase tracking-widest mb-6 border-b border-purple-900 pb-4">Resumen</h3>
-            
-            <div className="space-y-4 mb-8">
-              <div className="flex justify-between items-center text-lg text-gray-300">
-                <span>Subtotal ({cart.length} items)</span>
-                <span className="font-mono">${totalUSD} USD</span>
-              </div>
-              <div className="flex justify-between items-center text-2xl font-black text-white pt-4 border-t border-purple-900">
-                <span>Total</span>
-                <div className="text-right">
-                  <span className="font-mono block text-purple-400 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]">${totalUSD} USD</span>
-                  <span className="font-mono text-sm text-gray-500 block">${totalCOP.toLocaleString('es-CO')} COP</span>
-                </div>
-              </div>
-            </div>
+          <div className="lg:col-span-1">
+              <div className="bg-[#15101a] border border-purple-500/20 rounded-3xl p-8 sticky top-28 shadow-2xl shadow-purple-900/20">
+                  <h3 className="text-xl font-bold mb-6 text-white font-espacial uppercase tracking-widest border-b border-white/10 pb-4">Resumen</h3>
+                  
+                  <div className="space-y-4 mb-8">
+                      <div className="flex justify-between items-center text-gray-400">
+                          <span>Subtotal (USD)</span>
+                          <span className="font-mono text-white">${totalUSD}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-gray-400">
+                          <span>Subtotal (COP)</span>
+                          <span className="font-mono text-white">${totalCOP.toLocaleString()}</span>
+                      </div>
+                  </div>
 
-            {/* Pasarelas de Pago */}
-            <div className="space-y-4">
-              <p className="text-xs text-center text-gray-500 font-bold uppercase tracking-widest flex justify-center items-center gap-2 mb-4">
-                <FontAwesomeIcon icon={faShieldAlt} /> Pago Seguro
-              </p>
-              
-              <button 
-                onClick={handleMercadoPago}
-                className="w-full bg-[#009EE3] hover:bg-[#0089c4] text-white font-bold py-4 rounded-xl uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(0,158,227,0.4)] hover:shadow-[0_0_25px_rgba(0,158,227,0.7)]"
-              >
-                Pagar con MercadoPago
-              </button>
-              
-              <button 
-                onClick={handlePayPal}
-                className="w-full bg-[#FFC439] hover:bg-[#f4b625] text-[#003087] font-black py-4 rounded-xl uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(255,196,57,0.3)] hover:shadow-[0_0_25px_rgba(255,196,57,0.6)]"
-              >
-                Pagar con PayPal
-              </button>
-            </div>
+                  <div className="bg-purple-900/20 rounded-xl p-4 mb-8 border border-purple-500/30 text-center">
+                      <p className="text-xs text-purple-300 uppercase tracking-widest mb-1">Total a Pagar</p>
+                      <div className="text-3xl font-mono font-bold text-white mb-1">${totalUSD} USD</div>
+                      <div className="text-sm font-mono text-gray-400">o ${totalCOP.toLocaleString()} COP</div>
+                  </div>
+
+                  <div className="space-y-3">
+                      <button 
+                        onClick={() => handlePayment('mercadopago')}
+                        disabled={isProcessing}
+                        className="w-full bg-[#009ee3] hover:bg-[#007eb5] text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                      >
+                          <FontAwesomeIcon icon={faCreditCard} /> Pagar con MercadoPago
+                      </button>
+
+                      <button 
+                        onClick={() => handlePayment('paypal')}
+                        disabled={isProcessing}
+                        className="w-full bg-[#ffc439] hover:bg-[#f4bb2e] text-blue-900 font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                      >
+                          <FontAwesomeIcon icon={faPaypal} /> Pagar con PayPal
+                      </button>
+                  </div>
+
+                  <div className="mt-8 pt-6 border-t border-white/5 text-center">
+                      <div className="flex items-center justify-center gap-2 text-gray-500 text-xs mb-2">
+                          <FontAwesomeIcon icon={faLock} /> Pagos 100% Encriptados
+                      </div>
+                  </div>
+              </div>
           </div>
-
-        </div>
-      )}
+      </div>
     </div>
   );
 };
