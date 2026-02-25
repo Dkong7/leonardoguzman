@@ -96,7 +96,8 @@ const InternalMusicPlayer = ({ isDark, currentTrack, isPlaying, currentTime, dur
                         )}
                     </div>
                     <div className="w-full px-2">
-                        <h4 className={`text-2xl font-black truncate leading-tight ${textPrimary} drop-shadow-md`}>
+                        {/* APLICADO FONT-ESPACIAL */}
+                        <h4 className={`text-2xl font-espacial truncate leading-tight ${textPrimary} drop-shadow-md`}>
                             {currentTrack ? currentTrack.titulo : "SELECT TRACK"}
                         </h4>
                         <p className={`text-sm font-bold uppercase tracking-[0.2em] mt-2 ${textSecondary}`}>
@@ -271,7 +272,7 @@ const Musica = () => {
   );
 
   return (
-    // FONDO PRINCIPAL TRANSPARENTE PARA DEJAR VER LAS ESTRELLAS (z-index corregido)
+    // FONDO PRINCIPAL TRANSPARENTE PARA DEJAR VER LAS ESTRELLAS
     <div className={`min-h-screen relative font-sans pb-32 transition-colors duration-500 ${isDark ? 'bg-transparent' : 'bg-[#f0f2f5]'}`}>
       
       {/* FONDO DE ESTRELLAS FIJO */}
@@ -281,9 +282,9 @@ const Musica = () => {
           </div>
       )}
       
-      {/* HEADER */}
+      {/* HEADER: APLICADO FONT-ESPACIAL */}
       <div className="relative pt-36 pb-16 text-center z-10">
-          <h1 className={`text-6xl md:text-8xl font-serif font-black tracking-tighter uppercase mb-4 ${textPrimary} drop-shadow-[0_0_30px_rgba(168,85,247,0.3)]`}>
+          <h1 className={`text-6xl md:text-8xl font-espacial tracking-tighter uppercase mb-4 ${textPrimary} drop-shadow-[0_0_30px_rgba(168,85,247,0.3)]`}>
               {t('discography')}
           </h1>
           <div className={`h-1 w-24 mx-auto rounded-full ${isDark ? 'bg-purple-600 shadow-[0_0_15px_#9333ea]' : 'bg-purple-500'}`}></div>
@@ -293,10 +294,11 @@ const Musica = () => {
           
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start mb-32">
               
-              {/* IZQUIERDA: CONSOLA DIGITAL (PLAYER) - STICKY */}
+              {/* IZQUIERDA: CONSOLA DIGITAL (PLAYER) */}
               <div className="lg:col-span-5 xl:col-span-4 lg:sticky lg:top-32 z-30">
                   <div className="flex items-center justify-between px-4 mb-4">
-                      <h3 className={`text-xs font-black uppercase tracking-[0.3em] ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
+                      {/* APLICADO FONT-ESPACIAL */}
+                      <h3 className={`text-xs font-espacial uppercase tracking-[0.3em] ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
                           <FontAwesomeIcon icon={faHeadphones} className="mr-2" /> {t('now_playing')}
                       </h3>
                       <div className="flex gap-1.5">
@@ -319,7 +321,7 @@ const Musica = () => {
                   />
               </div>
 
-              {/* DERECHA: RELEASES (CARDS MEJORADAS) */}
+              {/* DERECHA: RELEASES */}
               <div className="lg:col-span-7 xl:col-span-8 grid grid-cols-1 gap-5">
                   {albums.map((album) => (
                       <div 
@@ -344,7 +346,8 @@ const Musica = () => {
                           <div className="flex-grow min-w-0 flex flex-col justify-center">
                               <div className="flex justify-between items-start mb-2">
                                   <div>
-                                      <h3 className={`text-2xl font-black truncate leading-tight ${textPrimary} ${currentTrack?.id === album.id ? 'text-purple-500' : ''}`}>
+                                      {/* APLICADO FONT-ESPACIAL */}
+                                      <h3 className={`text-2xl font-espacial truncate leading-tight ${textPrimary} ${currentTrack?.id === album.id ? 'text-purple-500' : ''}`}>
                                           {album.titulo}
                                       </h3>
                                       <p className={`text-[10px] font-bold uppercase tracking-[0.2em] mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{t('single_album')}</p>
@@ -358,14 +361,11 @@ const Musica = () => {
                                   )}
                               </div>
                               
-                              {/* DSP ICONS REPARADOS & GRANDES */}
                               <div className="flex gap-6 text-xl mt-4 opacity-60 group-hover:opacity-100 transition-opacity items-center">
                                   <a href="#" className="transition-colors hover:text-[#1DB954] hover:scale-110" title="Spotify"><FontAwesomeIcon icon={faSpotify} /></a>
                                   <a href="#" className="transition-colors hover:text-[#FA243C] hover:scale-110" title="Apple Music"><FontAwesomeIcon icon={faApple} /></a>
                                   <a href="#" className="transition-colors hover:text-[#FF0000] hover:scale-110" title="YouTube"><FontAwesomeIcon icon={faYoutube} /></a>
-                                  {/* Tidal (Cian) */}
                                   <a href="#" className="transition-colors hover:text-[#00FFFF] hover:scale-110" title="Tidal"><FontAwesomeIcon icon={faLayerGroup} /></a>
-                                  {/* Amazon (Naranja) */}
                                   <a href="#" className="transition-colors hover:text-[#FF9900] hover:scale-110" title="Amazon Music"><FontAwesomeIcon icon={faAmazon} /></a>
                               </div>
                           </div>
@@ -376,10 +376,14 @@ const Musica = () => {
 
           {/* SECCIÓN VIDEOS */}
           <div id="video-display" className="space-y-16">
-              {/* VIDEO PLAYER */}
+              {/* VIDEO PLAYER: APLICADO FONT-ESPACIAL */}
               <div className={`max-w-5xl mx-auto rounded-[3rem] overflow-hidden p-3 transition-all ${isDark ? 'bg-white/5 border border-white/10' : 'bg-white shadow-xl'}`}>
                   <div className="relative w-full aspect-video rounded-[2.5rem] overflow-hidden bg-black shadow-2xl">
                       <iframe src={`https://www.youtube.com/embed/${activeVideo.id}?autoplay=0&rel=0&modestbranding=1`} title="Video Player" allowFullScreen className="w-full h-full border-none"></iframe>
+                  </div>
+                  <div className="mt-6 px-6 pb-4">
+                      <span className="text-[10px] font-black text-purple-500 uppercase tracking-[0.4em] mb-1 block">{activeVideo.cat}</span>
+                      <h2 className={`text-2xl md:text-3xl font-espacial ${textPrimary}`}>{activeVideo.title}</h2>
                   </div>
               </div>
 
@@ -387,7 +391,8 @@ const Musica = () => {
               <div className="space-y-20 py-8 pl-2">
                   <div>
                       <div className="flex justify-between items-end mb-8 pr-4 border-b border-gray-800 pb-4">
-                          <h3 className={`text-2xl font-serif font-bold ${textPrimary}`}>
+                          {/* APLICADO FONT-ESPACIAL */}
+                          <h3 className={`text-2xl font-espacial ${textPrimary}`}>
                             <FontAwesomeIcon icon={faVideo} className="mr-3 text-purple-500" /> {t('official_videos')}
                           </h3>
                           <div className="flex gap-3">
@@ -402,7 +407,8 @@ const Musica = () => {
 
                   <div>
                       <div className="flex justify-between items-end mb-8 pr-4 border-b border-gray-800 pb-4">
-                          <h3 className={`text-2xl font-serif font-bold ${textPrimary}`}>
+                          {/* APLICADO FONT-ESPACIAL */}
+                          <h3 className={`text-2xl font-espacial ${textPrimary}`}>
                             <FontAwesomeIcon icon={faGraduationCap} className="mr-3 text-red-500" /> {t('academic_gear')}
                           </h3>
                           <div className="flex gap-3">

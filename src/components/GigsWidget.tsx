@@ -1,8 +1,27 @@
-﻿import { useEffect, useState } from 'react';
+﻿import { useEffect, useState, useContext } from 'react';
 import pb from '../lib/pocketbase';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faTicketAlt, faMapMarkerAlt, faMicrophoneAlt, faGraduationCap } from '@fortawesome/free-solid-svg-icons';
 import { useLanguage } from '../context/LanguageContext';
+import { ThemeContext } from '../context/ThemeContext';
+
+// --- COMPONENTE INTERNO: GUITARROSIS ICON (SVG PICK VERTICAL) ---
+const GuitarrosisIcon = ({ className }: { className?: string }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    viewBox="0 0 288.12 320.77" 
+    className={className}
+    fill="currentColor"
+  >
+    <g>
+      <path d="M178.96 303.45c-17.42 15.42-35.8 24.34-56.33 10.36-11.14-7.59-20.56-16.12-29.99-26.1-29.39-31.08-52.16-66.99-69.68-106.1-9.12-20.36-16.21-40.46-20.43-62.31-6.67-34.5-1.04-67.9 27.93-89.25C43.8 20.22 58.21 13.59 74.55 9.19c44.86-12.08 92.22-12.28 137.16-.46 16.24 4.27 30.59 10.64 43.94 20.04 25.49 17.94 35.33 46.05 31.75 76.72-2.58 22.15-8.63 42.91-17.06 63.6-20.24 49.66-51.23 98.81-91.39 134.36Zm-18.36 8.14c11.29-7.17 20.58-15.31 29.67-24.81 25.95-27.13 46.83-57.72 63.44-91.39 13.65-27.66 25.13-57.24 29.11-87.86 7.16-55.01-27.86-84.5-78.6-96.4-39.15-9.18-79.77-9.27-118.97-.38-29.39 6.67-61.02 21.47-73.87 49.21-6.9 14.9-8.58 31.24-6.31 47.55 1.89 13.57 4.5 26.08 8.95 39.19 17.26 50.82 44.26 97.59 80.57 137 9.48 10.29 19.28 18.91 30.58 26.58 10.82 7.35 23.85 8.67 35.42 1.32Z" />
+      <path d="M207.12 16.83c.47-.22 1.34-.7 1.62-.62 3.3 3.37 8.84 5.13 14.49 6.22l5.38.71c13.01 5.64 25.02 12.55 34.49 23.34 23.74 27.04 18.29 63.99 7.65 97.03-13.34 41.44-34.09 79.74-60.45 114.24-9.62 12.59-19.71 23.33-30.92 34.23-6.55 6.37-13.64 11.8-21.42 16.58-8.19 5.04-18.27 5.41-26.74.67-18.48-10.34-39.73-33.4-53.17-50.89-23.36-30.39-41.95-63.37-55.55-99.3C11.66 130.41.7 88.92 14.7 62.17l3.11-5.94.69-1.22c5.41-2.63 9.17-7.69 12.9-13.04l2.44-3.95 1.23-.9 4.61-.25c.94-.2 1.09-2.95 1.02-3.84.15-.11 1.68.1 1.93.1 6.48-2.06 10.07-6.82 16.93-7.84 5.87-3.57 12.18-5.12 18.58-6.91 7.43-2.08 14.79-4.23 22.57-5.09l30.56-3.34c8.24-.9 16.95-.63 25.17.04l13.69 1.11c12.54 1.01 24.92 3.75 37 5.72ZM75.06 161.18l2.24-.1c-.14 1.26 1.23 3.38 2.21 4.49.85.96 3.96 0 5.31.33 6.35 1.55 12.6 2.37 19.03 1.91l13.14-.94c4.75-.34 8.64-1.42 13.21-2.96 1.91-.64 5.77-1.68 6.46-3.39l.95-19.93.9-13.88 7.77-7.06-4.25-6.35-33.21.42c-3.76.05-7.31 5.33-7.73 8.13l5.49 3.94c1.56.08 4.58.05 5.94.77 3.68 1.95 4.65 17.75 2.34 26.74l-6.73 3.51c-2.55 1.33-8.02 1.94-10.48 1.41-1.5-2.34-2.39-3.14-4.45-3.72l-8.38-2.35c-1.47-2.59-2.33-3.84-3.78-5.59l-4.61-5.52c-2.78-3.34-2.52-6.92-3.31-10.68-1.03-4.88-3.91-10.1-3.59-15.04l.75-11.58c7.87-6.53-1.06-15.27 8.09-16.81l2.86-7.17c9.28-3.18 10.05-7.87 18.86-7.54l14.14-.26 2.04 1.17c.59 4.68 6.17 6.47 9.46 14.45.62 1.5.34 5.96 1.78 6.63 1.53.71 4.51 1.04 6.56.61 1.15-.24 3.29-2.64 3.16-3.78-.16-1.33-1.69-3.15-3.15-3.62l-.29-1.89c1.16-6.96.99-17.75-2.22-19.26l-9.64-4.54-25.7-.24c-6.44-.06-13.25 4.36-19.49 5.13-4.19.52-6.33 1.76-9.23 4.49s-6.62 5.46-8.97 9.05l-5.55 8.48c-3.92 5.99-.75 8.69-3.61 11.09-2.54 2.12-1.34 4.03-1.38 6.4-.28 14.26 1.03 28.37 8.4 41.12l3.9 2.79c2.25 6.26 9.89 11.49 14.77 11.13Zm89.89-48.72c-.03.21.22 1.16.24 1.21l-4.64 4.92-1.99 8.42c-.13.55-.89 2.13-1.36 2.13h-1.75l-1.34 11.82.38.38-6.73 12.28c-3.79 8.49-4.36 13.06-6.84 18.85l-6.78 15.77-3.54 7.21c-4.36-.85-9.85 1.58-11.23 5.12-.26.67-.29 2.72.23 2.93l2.54 1.02h.9l2.7 2.1 29.45-.07.95-2.07-.03-.48 4.2-2.84-5.27-5.1-5.37-.67c-1.63-4.28-1.12-9.5 1.33-13.6l3.39-5.65c.65-1.08 1.33-4.42 2.53-4.41 2.24.02 5.1-1.47 6.55-2.53 5.53-.72 12.23-.64 18.69-.63 4.81 8.96 11.79 24.64 6.64 27.31-2.51 1.31-4.49 2.74-4.98 4.23s.88 5.74 2.44 6.33l34.72.16c1.15 0 3.39-1.36 4-2l1.01-.96c.67-.09 2.26-.88 2.16-1.62-.13-.95-1.34-2.83-2.16-2.35v-.79c0-.74-1.17-1.92-1.98-2.17l-6.15-1.92c-1.68-1.69-3.22-3.08-4.77-3.35l.2-.93c1.08-2.7-.87-5.07-2.21-7.91l-4.37-7.81-1.16-2.11 1.25-1.7-2.65-6.01-3.36-14.8c-.94-4.12-4.34-6.9-5.55-11.27l-2.84-10.25-3.11-6.62-5.63-14.32c-.26-.65.19-2.88-.37-2.98l-2.53-.24.03-.64-1.17-7.71-11.39 2.13c-1.39 4.28-2.82 10.56-3.27 14.19Z" />
+      <path d="M207.12 16.83c-12.08-1.98-24.45-4.71-37-5.72L156.43 10c-8.21-.66-16.93-.94-25.17-.04L100.7 13.3c-7.79.85-15.14 3.01-22.57 5.09-6.4 1.79-12.7 3.34-18.58 6.91-6.86 1.03-10.45 5.78-16.93 7.84 22.13-15.39 51.81-21.92 79.83-24.05 14.03-1.07 27.94-.48 42.02-.29 14.25 1.57 27.68 3.5 41.47 6.56l1.18 1.48ZM18.5 55.01c4.18-6.45 9.42-12.38 15.34-16.99l-2.44 3.95c-3.73 5.35-7.49 10.41-12.9 13.04M228.61 23.13l-5.38-.71c-5.65-1.08-11.2-2.85-14.49-6.22 5.09 1.35 14 4.38 19.87 6.92ZM40.69 33.04c.07.9-.07 3.65-1.02 3.84l-4.61.25 5.62-4.09ZM14.7 62.17l3.11-5.94zM224.98 204.61c-.61.64-2.85 2-4 2l-34.72-.16c-1.56-.58-2.96-4.78-2.44-6.33s2.47-2.92 4.98-4.23c5.15-2.67-1.84-18.35-6.64-27.31-6.46-.02-13.16-.09-18.69.63-1.45 1.06-4.31 2.54-6.55 2.53-1.2 0-1.88 3.33-2.53 4.41L151 181.8c-2.46 4.1-2.96 9.32-1.33 13.6l5.37.67 5.27 5.1-4.2 2.84-.36-5.12-7.26-1.24c-2.08-.35-3.99-4.12-3.18-6.5l8.09-23.75 32.45.1 8.82 24.41c.35.98.45 3.83-.26 4.52-2.93 2.85-8.48 1.88-8.5 2.9l-.1 5.2 39.17.1ZM114.22 71.96l-14.14.26c-8.81-.32-9.58 4.37-18.86 7.54l-2.86 7.17c-9.15 1.54-.23 10.28-8.09 16.81l-.75 11.58c-.32 4.94 2.57 10.16 3.59 15.04.79 3.77.53 7.35 3.31 10.68l4.61 5.52c1.46 1.75 2.31 3 3.78 5.59l8.38 2.35c2.06.58 2.95 1.38 4.45 3.72 2.45.54 7.93-.08 10.48-1.41l6.73-3.51c2.31-8.99 1.34-24.79-2.34-26.74-1.36-.72-4.38-.69-5.94-.77l-5.49-3.94c.42-2.8 3.97-8.08 7.73-8.13l33.21-.42 4.25 6.35-7.77 7.06-.9 13.88-.95 19.93c-.69 1.71-4.55 2.74-6.46 3.39-4.57 1.53-8.46 2.62-13.21 2.96l-13.14.94c-6.43.46-12.68-.37-19.03-1.91-1.34-.33-4.45.63-5.31-.33-.98-1.11-2.35-3.23-2.21-4.49 18.89 8.83 37.37 5.43 57.19-.53-.49-11.4-.65-21.43-.3-32.74.21-6.74 12.39-3.88 7.49-10.98l-36.71.02.28 4.74c.08 1.32 7.46-.07 10.39 2.6 1.19 1.09 2.32 4.45 2.33 6.19l.07 20.31c.01 3.61-2.41 6.87-6.08 7.95-21.45 6.32-38.48-10.04-42.67-32.33-2.57-13.69-1.74-27.44 4.56-39.87 7.65-14.99 25.77-21.36 40.38-14.49Z" />
+      <path d="m133.78 85.54-.72-6.93c-.43-4.14-.67-7.39-1.63-11.5-23.05-6.4-46.2-7.13-64.6 8.32-21.41 17.97-23.07 57.12-2.06 77.24 3.26 3.12 7.31 5.54 10.3 8.51-4.88.36-12.52-4.87-14.77-11.13l-3.9-2.79c-7.36-12.75-8.68-26.86-8.4-41.12.05-2.37-1.15-4.28 1.38-6.4 2.86-2.4-.3-5.11 3.61-11.09l5.55-8.48c2.35-3.59 5.97-6.23 8.97-9.05s5.03-3.97 9.23-4.49c6.24-.77 13.04-5.19 19.49-5.13l25.7.24 9.64 4.54c3.21 1.51 3.38 12.3 2.22 19.26ZM205.55 172.69l-24.79-68.19 2.53.24c.56.11.11 2.33.37 2.98l5.63 14.32 3.11 6.62 2.84 10.25c1.21 4.37 4.61 7.15 5.55 11.27l3.36 14.8 2.65 6.01zM156.14 204.49l-.95 2.07-29.45.07-2.7-2.1zM180.79 103.86l-2.86-6.29-7.5 1.95-5.47 12.95c.45-3.62 1.88-9.91 3.27-14.19l11.39-2.13zM154.11 140.96l1.34-11.82h1.75c.47 0 1.23-1.58 1.36-2.13l1.99-8.42 4.64-4.92-9.26 23.99z" />
+      <path d="M134.07 87.43c1.46.47 2.99 2.29 3.15 3.62.14 1.14-2 3.54-3.16 3.78-2.05.43-5.03.09-6.56-.61-1.44-.67-1.16-5.12-1.78-6.63-3.29-7.98-8.88-9.77-9.46-14.45 6.04 3.47 10.87 11.61 12.55 18.16.47.96 3.91 1.82 4.53.96.75-1.03.93-3.48.73-4.82ZM122.13 204.53l-2.54-1.02c-.52-.21-.49-2.26-.23-2.93 1.39-3.54 6.87-5.97 11.23-5.12l3.54-7.21 6.78-15.77c2.49-5.79 3.05-10.35 6.84-18.85l6.73-12.28-18.45 48.12c-2.3 5.99-7.54 9.51-13.97 9.31l.06 5.76ZM225.98 198.89c-5.49-.29-11.05-2.07-12.89-7.44 1.55.27 3.09 1.65 4.77 3.35l6.15 1.92c.8.25 1.98 1.43 1.98 2.17ZM213.29 190.52c-.26.28-1.7-1.43-1.85-1.87l-4.73-13.84 4.37 7.81c1.34 2.84 3.29 5.2 2.21 7.91ZM225.99 203.65v-3.97c.81-.48 2.03 1.4 2.16 2.35.1.73-1.48 1.52-2.16 1.62M183.28 159.77l-27.55-.02 13.92-38.98z" />
+    </g>
+  </svg>
+);
 
 // TASA DE CAMBIO FIJA
 const EXCHANGE_RATE = 4150; 
@@ -18,8 +37,8 @@ interface Gig {
     imagen?: string;
     precio?: number;      
     tipo: 'live' | 'academic'; 
-    descripcion?: string;    // Español
-    descripcion_en?: string; // Inglés
+    descripcion?: string;    
+    descripcion_en?: string; 
 }
 
 const GigsWidget = () => {
@@ -27,6 +46,8 @@ const GigsWidget = () => {
   const [loading, setLoading] = useState(true);
   
   const { lang } = useLanguage(); 
+  const { theme } = useContext(ThemeContext);
+  const isDark = theme === 'purple';
 
   useEffect(() => { fetchGigs(); }, []);
 
@@ -55,7 +76,6 @@ const GigsWidget = () => {
     return new Date(date).toLocaleDateString(locale, { month: 'short' }).toUpperCase();
   };
 
-  // LOGICA DE PRECIO (COP vs US$)
   const formatPrice = (price?: number) => {
     if (!price) return '';
     if (lang === 'ES') {
@@ -64,14 +84,12 @@ const GigsWidget = () => {
         }).format(price);
     } else {
         const usdPrice = price / EXCHANGE_RATE;
-        // Forzamos visualmente 'US$' para evitar confusión
         return 'US' + new Intl.NumberFormat('en-US', { 
             style: 'currency', currency: 'USD', maximumFractionDigits: 0
         }).format(usdPrice);
     }
   };
 
-  // LOGICA DE DESCRIPCIÓN TRADUCIDA
   const getDescription = (gig: Gig) => {
     if (lang === 'EN' && gig.descripcion_en) {
         return gig.descripcion_en;
@@ -79,64 +97,84 @@ const GigsWidget = () => {
     return gig.descripcion || '';
   };
 
-  const getTypeStyles = (type: string) => {
-    if (type === 'academic') {
-        return {
-            border: 'border-cyan-500',
-            shadow: 'hover:shadow-[0_0_30px_rgba(6,182,212,0.4)]',
-            badgeBg: 'bg-cyan-950/90 border-cyan-500 text-cyan-400',
-            icon: faGraduationCap,
-            ribbon: 'bg-gradient-to-r from-cyan-600 to-cyan-500 shadow-md', 
-            glowText: 'text-cyan-400 drop-shadow-[0_0_5px_rgba(34,211,238,0.8)]',
-            buttonHover: 'hover:bg-cyan-900/50 hover:border-cyan-400'
-        };
-    }
-    return {
-        border: 'border-nardo-500',
-        shadow: 'hover:shadow-[0_0_30px_rgba(234,179,8,0.4)]',
-        badgeBg: 'bg-nardo-950/90 border-nardo-500 text-nardo-400',
-        icon: faMicrophoneAlt,
-        ribbon: 'bg-gradient-to-r from-yellow-600 to-yellow-500 shadow-md',
-        glowText: 'text-nardo-400 drop-shadow-[0_0_5px_rgba(250,204,21,0.8)]',
-        buttonHover: 'hover:bg-nardo-900/50 hover:border-nardo-400'
-    };
-  };
+  const textPrimary = isDark ? 'text-white' : 'text-gray-800';
+  const textSecondary = isDark ? 'text-gray-400' : 'text-gray-500';
 
   const ui = {
     ES: { loading: 'CARGANDO FECHAS...', buy: 'COMPRAR TICKET', sold: 'AGOTADO', date_label: 'FECHAS' },
     EN: { loading: 'LOADING DATES...', buy: 'GET TICKETS', sold: 'SOLD OUT', date_label: 'DATES' }
   }[lang];
 
-  if (loading) return <div className='text-nardo-500 text-center py-20 animate-pulse font-mono'>{ui.loading}</div>;
+  if (loading) return <div className={`text-center py-20 animate-pulse font-espacial tracking-widest ${isDark ? 'text-purple-500' : 'text-purple-600'}`}>{ui.loading}</div>;
 
   return (
-    <div className='w-full max-w-7xl mx-auto px-4 py-20'>
-      <div className='flex items-center justify-between mb-12 border-b border-nardo-800 pb-4'>
-        <h2 className='text-4xl md:text-5xl font-serif text-white tracking-tighter'>
-          TOUR <span className='text-nardo-500'>{ui.date_label}</span>
+    <div className='w-full'>
+      <div className={`flex items-center justify-between mb-12 border-b pb-4 ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
+        <h2 className={`text-3xl md:text-4xl font-espacial tracking-tighter ${textPrimary}`}>
+          TOUR <span className={isDark ? 'text-purple-500' : 'text-purple-600'}>{ui.date_label}</span>
         </h2>
       </div>
 
-      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8'>
+      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 justify-items-center'>
         {gigs.map((gig) => {
-          const styles = getTypeStyles(gig.tipo);
           const description = getDescription(gig);
+          const isAcademic = gig.tipo === 'academic';
+
+          const borderColor = isAcademic
+            ? (isDark ? 'border-cyan-500/60 hover:border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.2)] hover:shadow-[0_0_35px_rgba(6,182,212,0.4)]' : 'border-cyan-300 hover:border-cyan-500')
+            : (isDark ? 'border-purple-500/60 hover:border-purple-400 shadow-[0_0_20px_rgba(147,51,234,0.2)] hover:shadow-[0_0_35px_rgba(147,51,234,0.4)]' : 'border-purple-300 hover:border-purple-500');
+
+          const cardStyle = isDark
+            ? `bg-[#1a1a24]/80 backdrop-blur-md border-2 ${borderColor}`
+            : `bg-[#f0f2f5] border-2 ${borderColor} shadow-[8px_8px_16px_#bebebe,-8px_-8px_16px_#ffffff] hover:shadow-xl`;
+
+          const ribbonStyle = isAcademic
+             ? (isDark ? 'bg-cyan-600 text-white shadow-cyan-500/50' : 'bg-cyan-500 text-white shadow-cyan-500/30')
+             : (isDark ? 'bg-purple-600 text-white shadow-purple-500/50' : 'bg-purple-500 text-white shadow-purple-500/30');
+
+          const badgeStyle = isAcademic
+            ? (isDark ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' : 'bg-cyan-100 text-cyan-700 border-cyan-300')
+            : (isDark ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' : 'bg-purple-100 text-purple-700 border-purple-300');
+
+          const btnStyle = isDark
+            ? 'bg-white/5 hover:bg-white/10 border-white/10 text-white shadow-lg'
+            : 'bg-white hover:bg-gray-50 border-gray-200 text-gray-800 shadow-md';
+
+          const iconColorClass = isDark ? 'text-cyan-400' : 'text-cyan-600';
 
           return (
-            <div key={gig.id} className={`group relative bg-nardo-950 border ${styles.border} rounded-xl overflow-hidden transition-all duration-300 transform hover:-translate-y-2 ${styles.shadow}`}>
+            <div key={gig.id} className={`group relative rounded-[2rem] overflow-hidden transition-all duration-300 transform hover:-translate-y-2 w-full max-w-xs ${cardStyle}`}>
               
               {gig.precio && (
-                <div className='absolute -right-12 top-8 w-40 transform rotate-45 z-30 overflow-hidden drop-shadow-lg pointer-events-none'>
-                    <div className={`${styles.ribbon} text-white text-center text-sm font-black py-1 border-y border-white/20 tracking-wider`}>
+                <div className="absolute top-0 right-0 w-32 h-32 overflow-hidden z-40 pointer-events-none">
+                    <div className={`absolute top-0 right-0 transform translate-x-[30%] translate-y-[45%] rotate-45 w-full text-center py-2 font-black text-[11px] tracking-widest uppercase shadow-xl ${ribbonStyle}`}>
                         {formatPrice(gig.precio)}
                     </div>
                 </div>
               )}
 
-              <div className='relative h-56 overflow-hidden'>
-                <div className='absolute top-4 left-4 bg-black/90 text-white p-2 rounded text-center min-w-[60px] z-20 border border-gray-700 shadow-xl'>
-                    <span className={`block text-xs font-extrabold ${styles.glowText} uppercase`}>{getMonth(gig.fecha)}</span>
-                    <span className='block text-2xl font-bold leading-none'>{getDay(gig.fecha)}</span>
+              {/* LOGO ACADEMY CON FONDO TRANSPARENTE/CRISTAL */}
+              {isAcademic && (
+                  <div className={`absolute top-0 left-0 z-40 w-16 h-16 flex items-center justify-center rounded-br-2xl border-b border-r backdrop-blur-md transition-all duration-300
+                      ${isDark 
+                          ? 'bg-cyan-950/30 border-cyan-500/30 shadow-[0_4px_15px_rgba(0,0,0,0.3)]' 
+                          : 'bg-white/40 border-white/60 shadow-sm'
+                      }
+                  `}>
+                      <GuitarrosisIcon 
+                        className={`w-10 h-auto opacity-95 hover:opacity-100 hover:scale-105 transition-all duration-300 ${iconColorClass}`}
+                      />
+                  </div>
+              )}
+
+              <div className='relative h-64 overflow-hidden'>
+                {/* FECHA */}
+                <div className={`absolute left-4 p-3 rounded-2xl text-center min-w-[65px] z-20 backdrop-blur-md border shadow-xl transition-all duration-300
+                    ${isAcademic ? 'top-20' : 'top-4'} 
+                    ${isDark ? 'bg-black/60 border-white/10 text-white' : 'bg-white/90 border-white text-gray-800'}
+                `}>
+                    <span className='block text-[9px] font-black uppercase tracking-widest mb-1'>{getMonth(gig.fecha)}</span>
+                    <span className='block text-2xl font-espacial leading-none'>{getDay(gig.fecha)}</span>
                 </div>
 
                 <img 
@@ -144,25 +182,25 @@ const GigsWidget = () => {
                     alt={gig.lugar} 
                     className='w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 filter brightness-[0.6] group-hover:brightness-100' 
                 />
-                <div className='absolute inset-0 bg-gradient-to-t from-nardo-950 via-nardo-950/20 to-transparent'></div>
+                <div className={`absolute inset-0 bg-gradient-to-t ${isDark ? 'from-[#1a1a24] via-transparent to-transparent' : 'from-[#f0f2f5] via-transparent to-transparent'}`}></div>
               </div>
 
-              <div className='p-6 pt-8 relative'>
-                <div className={`absolute -top-3 right-4 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase border backdrop-blur-md shadow-lg z-20 ${styles.badgeBg}`}>
-                    <FontAwesomeIcon icon={styles.icon} className='mr-1' />
-                    {gig.tipo === 'academic' ? (lang === 'ES' ? 'MASTERCLASS' : 'ACADEMIC') : (lang === 'ES' ? 'EN VIVO' : 'LIVE SHOW')}
+              <div className='p-6 relative'>
+                <div className={`absolute -top-5 left-6 px-4 py-1.5 rounded-full text-[8px] font-black tracking-[0.2em] uppercase border backdrop-blur-md shadow-lg z-20 ${badgeStyle}`}>
+                    <FontAwesomeIcon icon={isAcademic ? faGraduationCap : faMicrophoneAlt} className='mr-2' />
+                    {isAcademic ? (lang === 'ES' ? 'MASTERCLASS' : 'ACADEMIC') : (lang === 'ES' ? 'EN VIVO' : 'LIVE SHOW')}
                 </div>
 
-                <div className='flex items-center gap-2 text-gray-400 text-xs font-bold mb-2 uppercase tracking-wide'>
-                    <FontAwesomeIcon icon={faMapMarkerAlt} className={styles.glowText} /> {gig.ciudad}
+                <div className={`flex items-center gap-2 text-[9px] font-black mb-2 uppercase tracking-widest ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
+                    <FontAwesomeIcon icon={faMapMarkerAlt} /> {gig.ciudad}
                 </div>
                 
-                <h3 className='text-xl font-bold text-white mb-2 leading-tight font-serif'>
+                <h3 className={`text-xl font-espacial mb-3 leading-tight ${textPrimary}`}>
                     {gig.lugar}
                 </h3>
 
                 {description && (
-                    <p className='text-gray-400 text-xs mb-6 line-clamp-3 leading-relaxed min-h-[3rem] font-light'>
+                    <p className={`text-xs mb-6 line-clamp-3 leading-relaxed min-h-[3rem] font-medium ${textSecondary}`}>
                         {description}
                     </p>
                 )}
@@ -172,12 +210,12 @@ const GigsWidget = () => {
                         href={gig.link_tiquetes} 
                         target='_blank' 
                         rel='noopener noreferrer' 
-                        className={`flex items-center justify-center gap-2 w-full py-3 border ${styles.border} bg-transparent ${styles.buttonHover} text-white font-bold text-xs tracking-widest uppercase rounded transition-all shadow-[0_0_10px_rgba(0,0,0,0.5)]`}
+                        className={`flex items-center justify-center gap-2 w-full py-3 border font-bold text-[9px] tracking-[0.2em] uppercase rounded-xl transition-all ${btnStyle}`}
                     >
                     {ui.buy} <FontAwesomeIcon icon={faTicketAlt} />
                     </a>
                 ) : (
-                    <button disabled className='w-full py-3 border border-gray-800 bg-gray-900 text-gray-600 font-bold text-xs tracking-widest uppercase rounded cursor-not-allowed'>
+                    <button disabled className={`w-full py-3 border font-bold text-[9px] tracking-[0.2em] uppercase rounded-xl cursor-not-allowed ${isDark ? 'border-white/5 bg-white/5 text-gray-500' : 'border-gray-200 bg-gray-100 text-gray-400'}`}>
                         {ui.sold}
                     </button>
                 )}

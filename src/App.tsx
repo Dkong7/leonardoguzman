@@ -35,28 +35,35 @@ const RouteTracker = () => {
   const location = useLocation();
 
   useEffect(() => {
-    // Protección: Solo enviar si GA está inicializado correctamente
     try {
-        ReactGA.send({ hitType: "pageview", page: location.pathname + location.search });
+      // react-ga4 maneja internamente si ya fue inicializado
+      ReactGA.send({ 
+        hitType: "pageview", 
+        page: location.pathname + location.search 
+      });
     } catch (e) {
-        console.warn("GA Send Error:", e);
+      console.warn("GA Send Error:", e);
     }
   }, [location]);
 
   return null;
 };
 
+// Protección para rutas administrativas
 const AdminRoute = ({ children }: { children: ReactNode }) => {
   return pb.authStore.isValid ? <>{children}</> : <Navigate to="/nardonardonardo" replace />;
 };
 
+// Protección para rutas de estudiantes
 const StudentRoute = ({ children }: { children: ReactNode }) => {
   return pb.authStore.isValid ? <>{children}</> : <Navigate to="/login" replace />;
 };
 
+// Controlador de Layout para ocultar Navbar/Footer
 const Layout = ({ children }: { children: ReactNode }) => {
   const location = useLocation();
   
+  // Ocultar Navbar/Footer en el Dashboard Admin, Login y Aula
   const isStandalone = 
     location.pathname.startsWith('/nardonardonardo') || 
     location.pathname === '/login' ||
@@ -75,20 +82,18 @@ const Layout = ({ children }: { children: ReactNode }) => {
 
 function App() {
   
-  // --- INICIALIZACIÓN SEGURA DE GA4 ---
+  // --- INICIALIZACIÓN DE GOOGLE ANALYTICS 4 ---
   useEffect(() => {
     try {
-      // Reemplaza "G-TU-ID-REAL" con tu ID real, ej: "G-123456789"
-      // Si no tienes ID aún, puedes dejarlo comentado o vacío para que no rompa
-      const GA_ID = "G-TU-ID-REAL"; 
+      const GA_ID = "G-8a85ba5727"; 
       
-      if (GA_ID && GA_ID !== "G-TU-ID-REAL" && typeof ReactGA.initialize === 'function') {
+      // Verificamos de forma dinámica para evitar el error de TypeScript ts(2367)
+      if (GA_ID && !GA_ID.includes("REAL")) {
           ReactGA.initialize(GA_ID);
           console.log("Analytics Initialized");
       }
     } catch (error) {
       console.error("Error inicializando Analytics:", error);
-      // La app sigue funcionando aunque falle Analytics
     }
   }, []);
 
@@ -103,7 +108,7 @@ function App() {
             
             <Layout>
               <Routes>
-                {/* PUBLICAS */}
+                {/* RUTAS PÚBLICAS */}
                 <Route path='/' element={<Hero />} />
                 <Route path='/musica' element={<Musica />} />
                 <Route path='/tienda' element={<Tienda />} />
@@ -112,19 +117,25 @@ function App() {
                 <Route path='/booking' element={<Booking />} />
                 <Route path='/carrito' element={<Carrito />} />
                 
-                {/* ACADEMIA */}
+                {/* RUTAS ACADEMIA */}
                 <Route path='/clases' element={<Clases />} />
                 <Route path='/clases/material' element={<TiendaAcademia />} />
                 <Route path='/login' element={<LoginEstudiantes />} />
                 <Route path='/aula' element={<StudentRoute><Aula /></StudentRoute>} />
 
-                {/* ADMIN */}
+                {/* RUTAS ADMINISTRATIVAS */}
                 <Route path='/nardonardonardo' element={<Login />} />
-                <Route path='/nardonardonardo/dashboard' element={<AdminRoute><Dashboard /></AdminRoute>} />
+                <Route path='/nardonardonardo/dashboard' element={
+                    <AdminRoute>
+                        <Dashboard />
+                    </AdminRoute>
+                } />
 
-                {/* CATCH-ALL */}
-                <Route path='/admin' element={<Navigate to="/" replace />} />
-                <Route path='/dashboard' element={<Navigate to="/" replace />} />
+                {/* REDIRECCIONES DE SEGURIDAD */}
+                <Route path='/admin' element={<Navigate to="/nardonardonardo" replace />} />
+                <Route path='/dashboard' element={<Navigate to="/nardonardonardo/dashboard" replace />} />
+                
+                {/* CATCH-ALL REDIRECT */}
                 <Route path='*' element={<Navigate to="/" replace />} />
               </Routes>
             </Layout>
@@ -132,7 +143,7 @@ function App() {
         </CartProvider>
       </LanguageProvider>
     </ThemeProvider>
-  )
+  );
 }
 
 export default App;
