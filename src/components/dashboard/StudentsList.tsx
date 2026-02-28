@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import pb from '../../lib/pocketbase';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
-    faSearch, faTrash, faEdit, faCheckCircle, faTimesCircle, 
+    faSearch, faTrash, faCheckCircle, faTimesCircle, 
     faStar, faUserPlus, faTimes, faSave, faFileAlt, faDownload, faCamera
 } from '@fortawesome/free-solid-svg-icons';
 
@@ -31,13 +31,9 @@ const StudentsList = () => {
         } catch (e) { console.error("Error loading users:", e); }
     };
 
-    // Cargar contenido subido por el estudiante (Simulado o real si tienes la colección 'entregas')
-    const loadUserContent = async (userId: string) => {
+    // Ajustado con _ para evitar error de variable no usada en TS
+    const loadUserContent = async (_userId: string) => {
         try {
-            // Ajusta 'entregas' al nombre real de tu colección de tareas/archivos
-            // const records = await pb.collection('entregas').getList(1, 10, { filter: `user = "${userId}"` });
-            // setUserFiles(records.items);
-            
             // Mock visual por ahora
             setUserFiles([
                 { id: 1, titulo: 'Práctica de Escalas.mp3', fecha: '2026-02-20', tipo: 'audio' },

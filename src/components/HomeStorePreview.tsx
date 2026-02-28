@@ -5,7 +5,7 @@ import { CartContext } from '../context/CartContext';
 import type { CartItem } from '../context/CartContext';
 import { useLanguage } from '../context/LanguageContext';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faTimes, faCartPlus, faArrowRight, faMusic, faShirt, faSpinner, faImages, faEye } from '@fortawesome/free-solid-svg-icons';
+import { faTimes, faCartPlus, faArrowRight, faMusic, faShirt, faSpinner, faImages } from '@fortawesome/free-solid-svg-icons';
 
 const HomeStorePreview = () => {
   const [products, setProducts] = useState<any[]>([]);
@@ -33,7 +33,6 @@ const HomeStorePreview = () => {
     fetchProducts();
   }, []);
 
-  // Al abrir un producto, establecer la imagen principal y prevenir scroll del body
   useEffect(() => {
     if (selectedProduct) {
       setActiveImage(selectedProduct.imagen ? pb.files.getUrl(selectedProduct, selectedProduct.imagen) : '/placeholder.jpg');
@@ -43,7 +42,6 @@ const HomeStorePreview = () => {
     }
   }, [selectedProduct]);
 
-  // --- HELPERS DE DATOS SEGÚN IDIOMA ---
   const getName = (prod: any) => {
     if (lang === 'EN' && prod.nombre_en) return prod.nombre_en;
     return prod.nombre;
@@ -54,18 +52,18 @@ const HomeStorePreview = () => {
     return prod.descripcion;
   };
 
-  // --- LOGICA CARRITO ---
   const handleAddToCart = (record: any, e?: React.MouseEvent) => {
     e?.stopPropagation();
     const item: CartItem = {
       id: record.id,
-      nombre: getName(record), // Guardamos el nombre en el idioma actual
+      nombre: getName(record),
       precioUSD: record.precio_usd,
       precioCOP: record.precio_cop,
       imagen: record.imagen ? pb.files.getUrl(record, record.imagen) : '',
       categoria: record.tipo,
       descripcion: getDescription(record),
-      cantidad: 1
+      cantidad: 1,
+      tipo: 'fisico' // Añadido para consistencia con la interfaz
     };
     addToCart(item);
   };
@@ -73,11 +71,9 @@ const HomeStorePreview = () => {
   const musicProducts = products.filter(p => ['audio', 'musica', 'preset', 'plugin'].includes(p.tipo));
   const merchProducts = products.filter(p => ['merch', 'ropa', 'accesorio'].includes(p.tipo));
 
-  // --- ESTILOS ---
   const buttonNeumorphic = "relative overflow-hidden rounded-xl bg-white/5 text-gray-200 font-bold shadow-[inset_1px_1px_5px_rgba(255,255,255,0.1),inset_-1px_-1px_5px_rgba(0,0,0,0.5)] hover:text-white hover:bg-purple-600/40 hover:shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-all duration-300 active:scale-95 border border-white/10 cursor-pointer z-40";
   const cardGlass = "group relative cursor-pointer flex flex-col h-full rounded-2xl overflow-hidden transition-all duration-500 hover:-translate-y-2 border border-white/10 bg-white/5 backdrop-blur-sm hover:bg-white/10 hover:border-purple-500/30 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] z-10";
 
-  // --- RENDER PRECIO ---
   const renderPrice = (prod: any, large = false) => {
     if (lang === 'EN') {
         return (
@@ -100,7 +96,6 @@ const HomeStorePreview = () => {
     }
   };
 
-  // --- SUB-COMPONENTE: CARD ---
   const ProductCard = ({ product }: { product: any }) => (
     <div onClick={() => setSelectedProduct(product)} className={cardGlass}>
         <div className="relative aspect-[3/4] overflow-hidden">
@@ -117,7 +112,7 @@ const HomeStorePreview = () => {
                 </span>
             </div>
             {product.galeria && product.galeria.length > 0 && (
-                <div className="absolute bottom-3 right-3 text-white/70 text-xs bg-black/40 px-2 py-1 rounded-full backdrop-blur-md border border-white/5">
+                <div className="absolute bottom-3 right-3 text-white/70 text-xs bg-black/40 px-2 py-1 rounded-full backdrop-blur-md border border-white/50">
                     <FontAwesomeIcon icon={faImages} className="mr-1" /> +{product.galeria.length}
                 </div>
             )}
@@ -125,7 +120,6 @@ const HomeStorePreview = () => {
 
         <div className="p-5 flex-1 flex flex-col justify-between bg-gradient-to-b from-white/0 to-black/40 backdrop-blur-[2px]">
             <div>
-                {/* Nombre Dinámico */}
                 <h4 className="font-espacial text-sm text-white mb-1 leading-tight line-clamp-2 group-hover:text-purple-300 transition-colors drop-shadow-md">
                     {getName(product)}
                 </h4>
@@ -156,7 +150,6 @@ const HomeStorePreview = () => {
         .animate-modal { animation: fadeInModal 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
       `}</style>
 
-      {/* SECCIÓN MÚSICA */}
       {musicProducts.length > 0 && (
           <div className="mb-20">
             <div className="section-divider max-w-7xl mx-auto px-4">
@@ -172,7 +165,6 @@ const HomeStorePreview = () => {
           </div>
       )}
 
-      {/* SECCIÓN MERCH */}
       {merchProducts.length > 0 && (
           <div className="mb-16">
             <div className="section-divider max-w-7xl mx-auto px-4">
@@ -195,7 +187,6 @@ const HomeStorePreview = () => {
         </Link>
       </div>
 
-      {/* --- MODAL --- */}
       {selectedProduct && (
         <div 
             className="fixed inset-0 z-[99999] flex items-start justify-center p-4 overflow-y-auto"
@@ -211,7 +202,6 @@ const HomeStorePreview = () => {
             }}
             onClick={(e) => e.stopPropagation()} 
           >
-            
             <button 
                 onClick={() => setSelectedProduct(null)} 
                 className="absolute top-4 right-4 z-50 h-10 w-10 rounded-full bg-white/10 text-white hover:bg-red-500/80 hover:text-white flex items-center justify-center border border-white/20 shadow-lg cursor-pointer transition-all backdrop-blur-md"
@@ -219,7 +209,6 @@ const HomeStorePreview = () => {
               <FontAwesomeIcon icon={faTimes} size="lg" />
             </button>
 
-            {/* Columna Izquierda: Galería */}
             <div className="w-full md:w-1/2 p-6 flex flex-col gap-4 bg-white/5 border-r border-white/5">
                 <div className="relative w-full aspect-square rounded-2xl overflow-hidden shadow-2xl border border-white/10">
                     <img 
@@ -229,9 +218,7 @@ const HomeStorePreview = () => {
                     />
                 </div>
                 
-                {/* Lógica Galería: Combina Imagen Principal + Array de Galería */}
                 <div className="flex gap-3 overflow-x-auto py-2 custom-scrollbar">
-                    {/* 1. Miniatura Principal */}
                     <button 
                         onClick={() => setActiveImage(selectedProduct.imagen ? pb.files.getUrl(selectedProduct, selectedProduct.imagen) : '/placeholder.jpg')}
                         className={`h-16 w-16 rounded-xl overflow-hidden border-2 transition-all shrink-0 ${activeImage.includes(selectedProduct.imagen) ? 'border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'border-white/10 hover:border-white/30'}`}
@@ -239,7 +226,6 @@ const HomeStorePreview = () => {
                          <img src={selectedProduct.imagen ? pb.files.getUrl(selectedProduct, selectedProduct.imagen) : '/placeholder.jpg'} alt="Main" className="w-full h-full object-cover" />
                     </button>
                     
-                    {/* 2. Miniaturas de Galería (PB Array) */}
                     {selectedProduct.galeria && selectedProduct.galeria.length > 0 && selectedProduct.galeria.map((img: string, index: number) => {
                         const imgUrl = pb.files.getUrl(selectedProduct, img);
                         return (
@@ -255,7 +241,6 @@ const HomeStorePreview = () => {
                 </div>
             </div>
 
-            {/* Columna Derecha: Info */}
             <div className="w-full md:w-1/2 p-8 md:p-12 flex flex-col text-white bg-transparent">
                 <div className="mb-2">
                     <span className="text-purple-300 text-[10px] font-black uppercase tracking-[0.25em] bg-white/5 px-3 py-1 rounded-lg border border-white/10 backdrop-blur-md">
@@ -270,7 +255,6 @@ const HomeStorePreview = () => {
                 <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar max-h-[300px] mb-8">
                     <div 
                         className="text-gray-100 text-sm leading-relaxed font-light tracking-wide drop-shadow-sm"
-                        // Renderizamos la descripción dinámica
                         dangerouslySetInnerHTML={{ __html: getDescription(selectedProduct) }} 
                     />
                 </div>

@@ -3,7 +3,7 @@ import pb from '../../lib/pocketbase';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
     faPlus, faTrash, faStore, faGraduationCap, faBoxOpen, 
-    faEdit, faTimes, faSave, faImage, faImages, faTruck, faCheckCircle, faClock
+    faEdit, faTimes, faSave, faImage, faImages, faTruck
 } from '@fortawesome/free-solid-svg-icons';
 
 const StoreManager = () => {
@@ -12,13 +12,13 @@ const StoreManager = () => {
     const [showModal, setShowModal] = useState(false);
     const [editingProduct, setEditingProduct] = useState<any | null>(null);
 
-    // Estado del Formulario
     const [formData, setFormData] = useState({
         nombre: '',
         descripcion: '',
         precio_usd: 0,
+        precio_cop: 0,
         stock: 1,
-        categoria: 'merch', // 'academy' o 'merch'
+        categoria: 'merch', 
         imagen: null as File | null,
         galeria: null as FileList | null
     });
@@ -30,16 +30,13 @@ const StoreManager = () => {
 
     const loadData = async () => {
         try {
-            // 1. Cargar Productos
             const prodRecords = await pb.collection('tienda').getFullList({ sort: '-created' });
             setProducts(prodRecords);
 
-            // 2. Cargar Pedidos (Simulado si no existe la colección aún, pero listo para funcionar)
-            // Asegúrate de tener una colección 'pedidos' con relaciones a 'users' y 'tienda'
             try {
                 const orderRecords = await pb.collection('pedidos').getFullList({ 
                     sort: '-created',
-                    expand: 'usuario,producto' // Expandir relaciones
+                    expand: 'usuario,producto' 
                 });
                 setOrders(orderRecords);
             } catch (e) {
@@ -48,7 +45,6 @@ const StoreManager = () => {
         } catch (e) { console.error("Error loading store data:", e); }
     };
 
-    // --- LÓGICA DEL MODAL ---
     const openModal = (product: any = null) => {
         setEditingProduct(product);
         if (product) {
@@ -56,8 +52,9 @@ const StoreManager = () => {
                 nombre: product.nombre,
                 descripcion: product.descripcion,
                 precio_usd: product.precio_usd,
+                precio_cop: product.precio_cop || 0,
                 stock: product.stock,
-                categoria: product.categoria,
+                categoria: product.tipo || 'merch',
                 imagen: null,
                 galeria: null
             });
@@ -67,6 +64,7 @@ const StoreManager = () => {
                 nombre: '',
                 descripcion: '',
                 precio_usd: 0,
+                precio_cop: 0,
                 stock: 10,
                 categoria: 'merch',
                 imagen: null,
@@ -83,12 +81,12 @@ const StoreManager = () => {
             data.append('nombre', formData.nombre);
             data.append('descripcion', formData.descripcion);
             data.append('precio_usd', formData.precio_usd.toString());
+            data.append('precio_cop', formData.precio_cop.toString());
             data.append('stock', formData.stock.toString());
-            data.append('categoria', formData.categoria);
+            data.append('tipo', formData.categoria);
 
             if (formData.imagen) data.append('imagen', formData.imagen);
             
-            // Manejo de galería (múltiples archivos)
             if (formData.galeria) {
                 for (let i = 0; i < formData.galeria.length; i++) {
                     data.append('galeria', formData.galeria[i]);
@@ -114,7 +112,6 @@ const StoreManager = () => {
         }
     };
 
-    // Cambiar estado del pedido (Ej: Pendiente -> Enviado)
     const advanceOrderStatus = async (order: any) => {
         const nextStatus = order.estado === 'pendiente' ? 'enviado' : 'entregado';
         await pb.collection('pedidos').update(order.id, { estado: nextStatus });
@@ -123,8 +120,6 @@ const StoreManager = () => {
 
     return (
         <div className="space-y-12 animate-in fade-in duration-500 pb-20">
-            
-            {/* HEADER INVENTARIO */}
             <div className="flex justify-between items-center border-b border-[#443b34] pb-6">
                 <div>
                     <h3 className="text-2xl font-black text-orange-500 uppercase italic tracking-tighter">Store & Inventory</h3>
@@ -138,31 +133,28 @@ const StoreManager = () => {
                 </button>
             </div>
 
-            {/* SECCIÓN 1: PRODUCTOS ACADEMY */}
             <div>
                 <h4 className="text-sm font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2">
                     <FontAwesomeIcon icon={faGraduationCap} className="text-orange-500" /> Cursos & Material Digital
                 </h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                    {products.filter(p => p.categoria === 'academy').map(p => (
+                    {products.filter(p => p.tipo === 'academico').map(p => (
                         <ProductCard key={p.id} p={p} onEdit={() => openModal(p)} onDelete={deleteProduct} />
                     ))}
                 </div>
             </div>
 
-            {/* SECCIÓN 2: MERCHANDISING */}
             <div>
                 <h4 className="text-sm font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2">
                     <FontAwesomeIcon icon={faStore} className="text-orange-500" /> Merch & Gear Físico
                 </h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                    {products.filter(p => p.categoria !== 'academy').map(p => (
+                    {products.filter(p => p.tipo !== 'academico').map(p => (
                         <ProductCard key={p.id} p={p} onEdit={() => openModal(p)} onDelete={deleteProduct} />
                     ))}
                 </div>
             </div>
 
-            {/* SECCIÓN 3: PEDIDOS Y ENVÍOS */}
             <div className="bg-[#26201b] border border-[#443b34] rounded-2xl overflow-hidden shadow-xl mt-12">
                 <div className="p-6 bg-[#211c18] border-b border-[#443b34] flex justify-between items-center">
                     <h3 className="font-black text-[#e7e5e4] uppercase tracking-widest flex items-center gap-2">
@@ -192,14 +184,14 @@ const StoreManager = () => {
                                 <tr key={order.id} className="hover:bg-[#2f2822] transition-colors">
                                     <td className="p-4 font-mono text-xs text-[#78716c]">#{order.id.slice(0,8)}</td>
                                     <td className="p-4 text-[#e7e5e4] font-bold">
-                                        {order.expand?.usuario?.username || 'Invitado'}
-                                        <p className="text-[9px] text-[#78716c] font-normal">{order.expand?.usuario?.email}</p>
+                                        {order.cliente_nombre || order.expand?.usuario?.username || 'Invitado'}
+                                        <p className="text-[9px] text-[#78716c] font-normal">{order.cliente_email || order.expand?.usuario?.email}</p>
                                     </td>
-                                    <td className="p-4 text-[#a8a29e]">{order.expand?.producto?.nombre || 'Producto eliminado'}</td>
-                                    <td className="p-4 font-bold text-green-500">${order.total}</td>
+                                    <td className="p-4 text-[#a8a29e]">{order.expand?.producto?.nombre || 'Ver items en panel'}</td>
+                                    <td className="p-4 font-bold text-green-500">${order.total_cop?.toLocaleString() || order.total} COP</td>
                                     <td className="p-4">
                                         <span className={`text-[9px] font-black px-2 py-1 rounded border uppercase ${
-                                            order.estado === 'entregado' ? 'bg-green-900/20 text-green-500 border-green-900/30' :
+                                            order.estado === 'entregado' || order.estado === 'pagado' ? 'bg-green-900/20 text-green-500 border-green-900/30' :
                                             order.estado === 'enviado' ? 'bg-blue-900/20 text-blue-500 border-blue-900/30' :
                                             'bg-yellow-900/20 text-yellow-500 border-yellow-900/30'
                                         }`}>
@@ -221,12 +213,10 @@ const StoreManager = () => {
                 </table>
             </div>
 
-            {/* --- MODAL DE PRODUCTO --- */}
             {showModal && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="bg-[#26201b] border border-orange-600/30 w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row h-[650px] animate-in zoom-in-95">
                         
-                        {/* COLUMNA IZQUIERDA: IMÁGENES */}
                         <div className="w-full md:w-1/3 bg-[#1f1a17] border-r border-[#443b34] p-6 flex flex-col items-center overflow-y-auto">
                             <label className="w-full aspect-square bg-[#1c1917] border-2 border-dashed border-[#443b34] rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-orange-500 hover:text-orange-500 transition-all group overflow-hidden relative shadow-xl mb-4">
                                 {previewUrl ? (
@@ -257,7 +247,6 @@ const StoreManager = () => {
                             </div>
                         </div>
 
-                        {/* COLUMNA DERECHA: DATOS */}
                         <div className="flex-1 flex flex-col bg-[#26201b]">
                             <div className="p-6 border-b border-[#443b34] flex justify-between items-center">
                                 <h3 className="font-black text-[#e7e5e4] uppercase tracking-widest text-sm">Detalles del Producto</h3>
@@ -276,6 +265,15 @@ const StoreManager = () => {
 
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
+                                        <label className="text-[10px] font-bold text-[#78716c] uppercase block mb-1">Precio (COP)</label>
+                                        <input 
+                                            type="number"
+                                            className="w-full bg-[#1c1917] border border-[#443b34] p-3 rounded-lg text-white text-sm outline-none focus:border-orange-600"
+                                            value={formData.precio_cop}
+                                            onChange={e => setFormData({...formData, precio_cop: parseFloat(e.target.value)})}
+                                        />
+                                    </div>
+                                    <div>
                                         <label className="text-[10px] font-bold text-[#78716c] uppercase block mb-1">Precio (USD)</label>
                                         <input 
                                             type="number"
@@ -283,6 +281,20 @@ const StoreManager = () => {
                                             value={formData.precio_usd}
                                             onChange={e => setFormData({...formData, precio_usd: parseFloat(e.target.value)})}
                                         />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-[10px] font-bold text-[#78716c] uppercase block mb-1">Tipo de Producto</label>
+                                        <select 
+                                            className="w-full bg-[#1c1917] border border-[#443b34] p-3 rounded-lg text-white text-xs outline-none focus:border-orange-600"
+                                            value={formData.categoria}
+                                            onChange={e => setFormData({...formData, categoria: e.target.value})}
+                                        >
+                                            <option value="academico">Académico / Digital</option>
+                                            <option value="merch">Merch Físico</option>
+                                        </select>
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-bold text-[#78716c] uppercase block mb-1">Stock Disponible</label>
@@ -292,24 +304,6 @@ const StoreManager = () => {
                                             value={formData.stock}
                                             onChange={e => setFormData({...formData, stock: parseInt(e.target.value)})}
                                         />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="text-[10px] font-bold text-[#78716c] uppercase block mb-1">Categoría</label>
-                                    <div className="flex gap-2">
-                                        <button 
-                                            onClick={() => setFormData({...formData, categoria: 'merch'})}
-                                            className={`flex-1 py-2 rounded text-xs font-black uppercase border ${formData.categoria === 'merch' ? 'bg-orange-600 text-white border-orange-500' : 'bg-[#1c1917] text-[#574c43] border-[#333]'}`}
-                                        >
-                                            Merch Físico
-                                        </button>
-                                        <button 
-                                            onClick={() => setFormData({...formData, categoria: 'academy'})}
-                                            className={`flex-1 py-2 rounded text-xs font-black uppercase border ${formData.categoria === 'academy' ? 'bg-blue-600 text-white border-blue-500' : 'bg-[#1c1917] text-[#574c43] border-[#333]'}`}
-                                        >
-                                            Academy / Digital
-                                        </button>
                                     </div>
                                 </div>
 
@@ -339,7 +333,6 @@ const StoreManager = () => {
     );
 };
 
-// Componente de Tarjeta Reutilizable
 const ProductCard = ({ p, onEdit, onDelete }: any) => (
     <div className="bg-[#26201b] border border-[#443b34] rounded-2xl overflow-hidden group hover:border-orange-600/50 transition-all shadow-lg flex flex-col">
         <div className="h-44 bg-[#1c1917] relative overflow-hidden">
@@ -348,8 +341,8 @@ const ProductCard = ({ p, onEdit, onDelete }: any) => (
             ) : (
                 <div className="w-full h-full flex items-center justify-center text-[#3a3028]"><FontAwesomeIcon icon={faBoxOpen} size="3x" /></div>
             )}
-            <div className="absolute top-3 right-3 bg-black/80 text-orange-500 text-xs font-black px-3 py-1 rounded-full backdrop-blur-md border border-orange-500/20 shadow-xl">
-                ${p.precio_usd}
+            <div className="absolute top-3 right-3 bg-black/80 text-orange-500 text-[10px] font-black px-2 py-1 rounded-full backdrop-blur-md border border-orange-500/20 shadow-xl">
+                ${(p.precio_cop || 0).toLocaleString()} COP
             </div>
             {p.stock < 5 && (
                 <div className="absolute bottom-0 left-0 right-0 bg-red-600/90 text-white text-[9px] font-black text-center py-1 uppercase tracking-widest">

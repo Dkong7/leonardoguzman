@@ -3,16 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import pb from '../lib/pocketbase';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
-    faSignOutAlt, faCheckCircle, faFire, faTrophy, faGuitar, 
+    faSignOutAlt, faCheckCircle, faFire, faGuitar, 
     faCloudUploadAlt, faCalendarAlt, faStickyNote, faDownload, 
     faCreditCard, faCamera, faVideo, faCommentDots, faArrowRight
 } from '@fortawesome/free-solid-svg-icons';
 
-// --- COMPONENTES AUXILIARES (ESTÉTICA LIGHT) ---
-
-// Heatmap de Práctica (Tonos Violetas)
 const PracticeHeatmap = () => {
-    const days = Array.from({ length: 28 }, (_, i) => ({
+    const days = Array.from({ length: 28 }, () => ({
         active: Math.random() > 0.3, 
         opacity: Math.random() * 0.6 + 0.2
     }));
@@ -36,7 +33,6 @@ const PracticeHeatmap = () => {
     );
 };
 
-// Tarjeta de Misión (Estilo Glass/Clean)
 const MissionCard = ({ title, xp, done, type }: { title: string, xp: string, done?: boolean, type: 'video' | 'practice' }) => (
     <div className={`p-5 rounded-2xl border flex justify-between items-center transition-all cursor-pointer group hover:shadow-md
         ${done 
@@ -59,7 +55,6 @@ const MissionCard = ({ title, xp, done, type }: { title: string, xp: string, don
     </div>
 );
 
-// --- COMPONENTE PRINCIPAL AULA ---
 const Aula = () => {
     const navigate = useNavigate();
     const [user, setUser] = useState<any>(null);
@@ -100,20 +95,17 @@ const Aula = () => {
     return (
         <div className="min-h-screen bg-[#fcfbff] text-gray-700 font-sans flex flex-col md:flex-row overflow-hidden relative">
             
-            {/* FONDO ANIMADO SUTIL */}
             <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
                 <div className="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] bg-purple-100/40 rounded-full blur-[120px]"></div>
                 <div className="absolute bottom-[-10%] right-[-10%] w-[40vw] h-[40vw] bg-blue-50/40 rounded-full blur-[120px]"></div>
             </div>
 
-            {/* --- SIDEBAR IZQUIERDO --- */}
             <aside className="w-full md:w-72 bg-white/80 backdrop-blur-xl border-r border-purple-50 flex flex-col z-20 shadow-2xl shadow-purple-100/20">
                 <div className="p-8 flex justify-center">
                     <img src="/guitarrosis-logo.svg" alt="Guitarrosis" className="h-10 w-auto" />
                 </div>
 
                 <div className="px-6 pb-6 flex flex-col items-center text-center">
-                    {/* AVATAR */}
                     <label className="relative group cursor-pointer mb-4">
                         <div className="w-28 h-28 rounded-full bg-white p-1 border-2 border-purple-100 shadow-xl overflow-hidden">
                             <div className="w-full h-full rounded-full overflow-hidden bg-gray-50 flex items-center justify-center relative">
@@ -122,7 +114,6 @@ const Aula = () => {
                                 ) : (
                                     <span className="text-3xl font-black text-purple-200">{user.username.charAt(0).toUpperCase()}</span>
                                 )}
-                                {/* Overlay Hover */}
                                 <div className="absolute inset-0 bg-purple-900/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                                     <FontAwesomeIcon icon={faCamera} className="text-white drop-shadow-md" />
                                 </div>
@@ -134,7 +125,6 @@ const Aula = () => {
                     <h2 className="font-serif font-bold text-gray-900 text-xl">{user.username}</h2>
                     <p className="text-xs text-purple-500 font-bold uppercase tracking-widest mt-1">Nivel: Shredder</p>
 
-                    {/* STATUS DE PAGO */}
                     <div className={`mt-4 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border flex items-center gap-2 shadow-sm ${
                         user.pago_activo 
                         ? 'bg-green-50 text-green-600 border-green-100' 
@@ -173,7 +163,6 @@ const Aula = () => {
                 </div>
             </aside>
 
-            {/* --- CONTENIDO PRINCIPAL --- */}
             <main className="flex-1 p-8 md:p-12 overflow-y-auto relative z-10">
                 <header className="flex flex-col md:flex-row justify-between items-end mb-12 gap-6">
                     <div>
@@ -183,7 +172,6 @@ const Aula = () => {
                         <p className="text-gray-500 font-light">"La consistencia vence al talento." Sigue así.</p>
                     </div>
                     
-                    {/* CARD XP */}
                     <div className="bg-white px-8 py-4 rounded-2xl border border-purple-50 shadow-xl shadow-purple-100/50 flex items-center gap-6">
                         <div className="text-center">
                             <span className="block text-[10px] text-gray-400 font-bold uppercase tracking-widest">XP Total</span>
@@ -202,9 +190,7 @@ const Aula = () => {
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     
-                    {/* COLUMNA CENTRAL (FEED) */}
                     <div className="lg:col-span-2 space-y-8">
-                        {/* MENSAJE DEL SENSEI */}
                         <div className="bg-gradient-to-r from-[#2d1b4e] to-[#1a0b2e] p-8 rounded-[2rem] shadow-2xl shadow-purple-900/10 relative overflow-hidden">
                             <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/20 rounded-full blur-[40px]"></div>
                             <FontAwesomeIcon icon={faCommentDots} className="absolute top-6 right-6 text-white/10 text-5xl" />
@@ -215,7 +201,6 @@ const Aula = () => {
                             </p>
                         </div>
 
-                        {/* MISIONES */}
                         <div>
                             <div className="flex justify-between items-end mb-5">
                                 <h3 className="text-[#1a0b2e] font-serif font-bold text-2xl">Misiones de Hoy</h3>
@@ -228,7 +213,6 @@ const Aula = () => {
                             </div>
                         </div>
 
-                        {/* ZONA DE UPLOAD (CONDICIONAL) */}
                         {activeTab === 'homework' && (
                             <div className="animate-in fade-in slide-in-from-bottom-4">
                                 <h3 className="text-[#1a0b2e] font-serif font-bold text-2xl mb-5">Entregar Tarea</h3>
@@ -246,9 +230,7 @@ const Aula = () => {
                         )}
                     </div>
 
-                    {/* COLUMNA DERECHA (WIDGETS) */}
                     <div className="space-y-8">
-                        {/* CALENDARIO / AGENDA */}
                         <div className="bg-white p-6 rounded-3xl border border-purple-50 shadow-lg shadow-purple-100/50">
                             <h3 className="text-gray-400 font-black uppercase text-xs tracking-widest mb-4 flex items-center gap-2">
                                 <FontAwesomeIcon icon={faCalendarAlt} className="text-purple-500" /> Próxima Clase
@@ -266,7 +248,6 @@ const Aula = () => {
                             </div>
                         </div>
 
-                        {/* RECURSOS */}
                         <div className="bg-white p-6 rounded-3xl border border-purple-50 shadow-lg shadow-purple-100/50">
                             <h3 className="text-gray-400 font-black uppercase text-xs tracking-widest mb-4 flex items-center gap-2">
                                 <FontAwesomeIcon icon={faDownload} className="text-purple-500" /> Baúl de Recursos
@@ -289,7 +270,6 @@ const Aula = () => {
                             </ul>
                         </div>
 
-                        {/* HEATMAP */}
                         <PracticeHeatmap />
                     </div>
 

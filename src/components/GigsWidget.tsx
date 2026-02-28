@@ -1,18 +1,13 @@
 ﻿import { useEffect, useState, useContext } from 'react';
 import pb from '../lib/pocketbase';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faTicketAlt, faMapMarkerAlt, faMicrophoneAlt, faGraduationCap } from '@fortawesome/free-solid-svg-icons';
+import { faTicketAlt, faMapMarkerAlt, faMicrophoneAlt, faGraduationCap, faMusic, faLaptopHouse } from '@fortawesome/free-solid-svg-icons';
 import { useLanguage } from '../context/LanguageContext';
 import { ThemeContext } from '../context/ThemeContext';
 
 // --- COMPONENTE INTERNO: GUITARROSIS ICON (SVG PICK VERTICAL) ---
 const GuitarrosisIcon = ({ className }: { className?: string }) => (
-  <svg 
-    xmlns="http://www.w3.org/2000/svg" 
-    viewBox="0 0 288.12 320.77" 
-    className={className}
-    fill="currentColor"
-  >
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 288.12 320.77" className={className} fill="currentColor">
     <g>
       <path d="M178.96 303.45c-17.42 15.42-35.8 24.34-56.33 10.36-11.14-7.59-20.56-16.12-29.99-26.1-29.39-31.08-52.16-66.99-69.68-106.1-9.12-20.36-16.21-40.46-20.43-62.31-6.67-34.5-1.04-67.9 27.93-89.25C43.8 20.22 58.21 13.59 74.55 9.19c44.86-12.08 92.22-12.28 137.16-.46 16.24 4.27 30.59 10.64 43.94 20.04 25.49 17.94 35.33 46.05 31.75 76.72-2.58 22.15-8.63 42.91-17.06 63.6-20.24 49.66-51.23 98.81-91.39 134.36Zm-18.36 8.14c11.29-7.17 20.58-15.31 29.67-24.81 25.95-27.13 46.83-57.72 63.44-91.39 13.65-27.66 25.13-57.24 29.11-87.86 7.16-55.01-27.86-84.5-78.6-96.4-39.15-9.18-79.77-9.27-118.97-.38-29.39 6.67-61.02 21.47-73.87 49.21-6.9 14.9-8.58 31.24-6.31 47.55 1.89 13.57 4.5 26.08 8.95 39.19 17.26 50.82 44.26 97.59 80.57 137 9.48 10.29 19.28 18.91 30.58 26.58 10.82 7.35 23.85 8.67 35.42 1.32Z" />
       <path d="M207.12 16.83c.47-.22 1.34-.7 1.62-.62 3.3 3.37 8.84 5.13 14.49 6.22l5.38.71c13.01 5.64 25.02 12.55 34.49 23.34 23.74 27.04 18.29 63.99 7.65 97.03-13.34 41.44-34.09 79.74-60.45 114.24-9.62 12.59-19.71 23.33-30.92 34.23-6.55 6.37-13.64 11.8-21.42 16.58-8.19 5.04-18.27 5.41-26.74.67-18.48-10.34-39.73-33.4-53.17-50.89-23.36-30.39-41.95-63.37-55.55-99.3C11.66 130.41.7 88.92 14.7 62.17l3.11-5.94.69-1.22c5.41-2.63 9.17-7.69 12.9-13.04l2.44-3.95 1.23-.9 4.61-.25c.94-.2 1.09-2.95 1.02-3.84.15-.11 1.68.1 1.93.1 6.48-2.06 10.07-6.82 16.93-7.84 5.87-3.57 12.18-5.12 18.58-6.91 7.43-2.08 14.79-4.23 22.57-5.09l30.56-3.34c8.24-.9 16.95-.63 25.17.04l13.69 1.11c12.54 1.01 24.92 3.75 37 5.72ZM75.06 161.18l2.24-.1c-.14 1.26 1.23 3.38 2.21 4.49.85.96 3.96 0 5.31.33 6.35 1.55 12.6 2.37 19.03 1.91l13.14-.94c4.75-.34 8.64-1.42 13.21-2.96 1.91-.64 5.77-1.68 6.46-3.39l.95-19.93.9-13.88 7.77-7.06-4.25-6.35-33.21.42c-3.76.05-7.31 5.33-7.73 8.13l5.49 3.94c1.56.08 4.58.05 5.94.77 3.68 1.95 4.65 17.75 2.34 26.74l-6.73 3.51c-2.55 1.33-8.02 1.94-10.48 1.41-1.5-2.34-2.39-3.14-4.45-3.72l-8.38-2.35c-1.47-2.59-2.33-3.84-3.78-5.59l-4.61-5.52c-2.78-3.34-2.52-6.92-3.31-10.68-1.03-4.88-3.91-10.1-3.59-15.04l.75-11.58c7.87-6.53-1.06-15.27 8.09-16.81l2.86-7.17c9.28-3.18 10.05-7.87 18.86-7.54l14.14-.26 2.04 1.17c.59 4.68 6.17 6.47 9.46 14.45.62 1.5.34 5.96 1.78 6.63 1.53.71 4.51 1.04 6.56.61 1.15-.24 3.29-2.64 3.16-3.78-.16-1.33-1.69-3.15-3.15-3.62l-.29-1.89c1.16-6.96.99-17.75-2.22-19.26l-9.64-4.54-25.7-.24c-6.44-.06-13.25 4.36-19.49 5.13-4.19.52-6.33 1.76-9.23 4.49s-6.62 5.46-8.97 9.05l-5.55 8.48c-3.92 5.99-.75 8.69-3.61 11.09-2.54 2.12-1.34 4.03-1.38 6.4-.28 14.26 1.03 28.37 8.4 41.12l3.9 2.79c2.25 6.26 9.89 11.49 14.77 11.13Zm89.89-48.72c-.03.21.22 1.16.24 1.21l-4.64 4.92-1.99 8.42c-.13.55-.89 2.13-1.36 2.13h-1.75l-1.34 11.82.38.38-6.73 12.28c-3.79 8.49-4.36 13.06-6.84 18.85l-6.78 15.77-3.54 7.21c-4.36-.85-9.85 1.58-11.23 5.12-.26.67-.29 2.72.23 2.93l2.54 1.02h.9l2.7 2.1 29.45-.07.95-2.07-.03-.48 4.2-2.84-5.27-5.1-5.37-.67c-1.63-4.28-1.12-9.5 1.33-13.6l3.39-5.65c.65-1.08 1.33-4.42 2.53-4.41 2.24.02 5.1-1.47 6.55-2.53 5.53-.72 12.23-.64 18.69-.63 4.81 8.96 11.79 24.64 6.64 27.31-2.51 1.31-4.49 2.74-4.98 4.23s.88 5.74 2.44 6.33l34.72.16c1.15 0 3.39-1.36 4-2l1.01-.96c.67-.09 2.26-.88 2.16-1.62-.13-.95-1.34-2.83-2.16-2.35v-.79c0-.74-1.17-1.92-1.98-2.17l-6.15-1.92c-1.68-1.69-3.22-3.08-4.77-3.35l.2-.93c1.08-2.7-.87-5.07-2.21-7.91l-4.37-7.81-1.16-2.11 1.25-1.7-2.65-6.01-3.36-14.8c-.94-4.12-4.34-6.9-5.55-11.27l-2.84-10.25-3.11-6.62-5.63-14.32c-.26-.65.19-2.88-.37-2.98l-2.53-.24.03-.64-1.17-7.71-11.39 2.13c-1.39 4.28-2.82 10.56-3.27 14.19Z" />
@@ -23,7 +18,6 @@ const GuitarrosisIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-// TASA DE CAMBIO FIJA
 const EXCHANGE_RATE = 4150; 
 
 interface Gig { 
@@ -107,123 +101,157 @@ const GigsWidget = () => {
 
   if (loading) return <div className={`text-center py-20 animate-pulse font-espacial tracking-widest ${isDark ? 'text-purple-500' : 'text-purple-600'}`}>{ui.loading}</div>;
 
-  return (
-    <div className='w-full'>
-      <div className={`flex items-center justify-between mb-12 border-b pb-4 ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
-        <h2 className={`text-3xl md:text-4xl font-espacial tracking-tighter ${textPrimary}`}>
-          TOUR <span className={isDark ? 'text-purple-500' : 'text-purple-600'}>{ui.date_label}</span>
-        </h2>
-      </div>
+  // DIVISIÓN DE ARREGLOS
+  const liveGigs = gigs.filter(g => g.tipo !== 'academic');
+  const academicGigs = gigs.filter(g => g.tipo === 'academic');
 
-      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 justify-items-center'>
-        {gigs.map((gig) => {
-          const description = getDescription(gig);
-          const isAcademic = gig.tipo === 'academic';
+  // FUNCIÓN PARA RENDERIZAR LAS TARJETAS (Evita repetir código)
+  const renderCards = (gigList: Gig[]) => {
+      if (gigList.length === 0) {
+          return <p className={`text-center w-full py-10 font-bold uppercase tracking-widest text-xs ${isDark ? 'text-gray-600' : 'text-gray-400'}`}>{lang === 'EN' ? 'No dates scheduled.' : 'No hay fechas programadas.'}</p>;
+      }
 
-          const borderColor = isAcademic
-            ? (isDark ? 'border-cyan-500/60 hover:border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.2)] hover:shadow-[0_0_35px_rgba(6,182,212,0.4)]' : 'border-cyan-300 hover:border-cyan-500')
-            : (isDark ? 'border-purple-500/60 hover:border-purple-400 shadow-[0_0_20px_rgba(147,51,234,0.2)] hover:shadow-[0_0_35px_rgba(147,51,234,0.4)]' : 'border-purple-300 hover:border-purple-500');
+      return (
+        <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 justify-items-center w-full'>
+            {gigList.map((gig) => {
+            const description = getDescription(gig);
+            const isAcademic = gig.tipo === 'academic';
 
-          const cardStyle = isDark
-            ? `bg-[#1a1a24]/80 backdrop-blur-md border-2 ${borderColor}`
-            : `bg-[#f0f2f5] border-2 ${borderColor} shadow-[8px_8px_16px_#bebebe,-8px_-8px_16px_#ffffff] hover:shadow-xl`;
+            // ESTILOS SOBRIOS FASE 2
+            const borderColor = isAcademic
+                ? (isDark ? 'border-[#222] hover:border-cyan-600' : 'border-gray-200 hover:border-cyan-500')
+                : (isDark ? 'border-[#222] hover:border-purple-600' : 'border-gray-200 hover:border-purple-500');
 
-          const ribbonStyle = isAcademic
-             ? (isDark ? 'bg-cyan-600 text-white shadow-cyan-500/50' : 'bg-cyan-500 text-white shadow-cyan-500/30')
-             : (isDark ? 'bg-purple-600 text-white shadow-purple-500/50' : 'bg-purple-500 text-white shadow-purple-500/30');
+            const cardStyle = isDark
+                ? `bg-[#111111] border-2 ${borderColor} shadow-2xl`
+                : `bg-white border-2 ${borderColor} shadow-lg`;
 
-          const badgeStyle = isAcademic
-            ? (isDark ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' : 'bg-cyan-100 text-cyan-700 border-cyan-300')
-            : (isDark ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' : 'bg-purple-100 text-purple-700 border-purple-300');
+            const ribbonStyle = isAcademic
+                ? (isDark ? 'bg-cyan-700 text-white' : 'bg-cyan-500 text-white')
+                : (isDark ? 'bg-purple-700 text-white' : 'bg-purple-500 text-white');
 
-          const btnStyle = isDark
-            ? 'bg-white/5 hover:bg-white/10 border-white/10 text-white shadow-lg'
-            : 'bg-white hover:bg-gray-50 border-gray-200 text-gray-800 shadow-md';
+            const badgeStyle = isAcademic
+                ? (isDark ? 'bg-cyan-900/30 text-cyan-400 border-cyan-800' : 'bg-cyan-50 text-cyan-700 border-cyan-200')
+                : (isDark ? 'bg-purple-900/30 text-purple-400 border-purple-800' : 'bg-purple-50 text-purple-700 border-purple-200');
 
-          const iconColorClass = isDark ? 'text-cyan-400' : 'text-cyan-600';
+            const btnStyle = isDark
+                ? 'bg-[#1a1a1a] hover:bg-purple-600 border-[#333] text-white shadow-lg'
+                : 'bg-white hover:bg-gray-50 border-gray-200 text-gray-800 shadow-sm';
 
-          return (
-            <div key={gig.id} className={`group relative rounded-[2rem] overflow-hidden transition-all duration-300 transform hover:-translate-y-2 w-full max-w-xs ${cardStyle}`}>
-              
-              {gig.precio && (
-                <div className="absolute top-0 right-0 w-32 h-32 overflow-hidden z-40 pointer-events-none">
-                    <div className={`absolute top-0 right-0 transform translate-x-[30%] translate-y-[45%] rotate-45 w-full text-center py-2 font-black text-[11px] tracking-widest uppercase shadow-xl ${ribbonStyle}`}>
-                        {formatPrice(gig.precio)}
-                    </div>
-                </div>
-              )}
+            const iconColorClass = isDark ? 'text-cyan-400' : 'text-cyan-600';
 
-              {/* LOGO ACADEMY CON FONDO TRANSPARENTE/CRISTAL */}
-              {isAcademic && (
-                  <div className={`absolute top-0 left-0 z-40 w-16 h-16 flex items-center justify-center rounded-br-2xl border-b border-r backdrop-blur-md transition-all duration-300
-                      ${isDark 
-                          ? 'bg-cyan-950/30 border-cyan-500/30 shadow-[0_4px_15px_rgba(0,0,0,0.3)]' 
-                          : 'bg-white/40 border-white/60 shadow-sm'
-                      }
-                  `}>
-                      <GuitarrosisIcon 
-                        className={`w-10 h-auto opacity-95 hover:opacity-100 hover:scale-105 transition-all duration-300 ${iconColorClass}`}
-                      />
-                  </div>
-              )}
-
-              <div className='relative h-64 overflow-hidden'>
-                {/* FECHA */}
-                <div className={`absolute left-4 p-3 rounded-2xl text-center min-w-[65px] z-20 backdrop-blur-md border shadow-xl transition-all duration-300
-                    ${isAcademic ? 'top-20' : 'top-4'} 
-                    ${isDark ? 'bg-black/60 border-white/10 text-white' : 'bg-white/90 border-white text-gray-800'}
-                `}>
-                    <span className='block text-[9px] font-black uppercase tracking-widest mb-1'>{getMonth(gig.fecha)}</span>
-                    <span className='block text-2xl font-espacial leading-none'>{getDay(gig.fecha)}</span>
-                </div>
-
-                <img 
-                    src={gig.imagen_url || '/placeholder_gig.jpg'} 
-                    alt={gig.lugar} 
-                    className='w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 filter brightness-[0.6] group-hover:brightness-100' 
-                />
-                <div className={`absolute inset-0 bg-gradient-to-t ${isDark ? 'from-[#1a1a24] via-transparent to-transparent' : 'from-[#f0f2f5] via-transparent to-transparent'}`}></div>
-              </div>
-
-              <div className='p-6 relative'>
-                <div className={`absolute -top-5 left-6 px-4 py-1.5 rounded-full text-[8px] font-black tracking-[0.2em] uppercase border backdrop-blur-md shadow-lg z-20 ${badgeStyle}`}>
-                    <FontAwesomeIcon icon={isAcademic ? faGraduationCap : faMicrophoneAlt} className='mr-2' />
-                    {isAcademic ? (lang === 'ES' ? 'MASTERCLASS' : 'ACADEMIC') : (lang === 'ES' ? 'EN VIVO' : 'LIVE SHOW')}
-                </div>
-
-                <div className={`flex items-center gap-2 text-[9px] font-black mb-2 uppercase tracking-widest ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
-                    <FontAwesomeIcon icon={faMapMarkerAlt} /> {gig.ciudad}
-                </div>
+            return (
+                <div key={gig.id} className={`group relative rounded-[2rem] overflow-hidden transition-all duration-300 transform hover:-translate-y-2 w-full max-w-xs ${cardStyle}`}>
                 
-                <h3 className={`text-xl font-espacial mb-3 leading-tight ${textPrimary}`}>
-                    {gig.lugar}
-                </h3>
-
-                {description && (
-                    <p className={`text-xs mb-6 line-clamp-3 leading-relaxed min-h-[3rem] font-medium ${textSecondary}`}>
-                        {description}
-                    </p>
+                {gig.precio && (
+                    <div className="absolute top-0 right-0 w-32 h-32 overflow-hidden z-40 pointer-events-none">
+                        <div className={`absolute top-0 right-0 transform translate-x-[30%] translate-y-[45%] rotate-45 w-full text-center py-2 font-black text-[11px] tracking-widest uppercase shadow-xl ${ribbonStyle}`}>
+                            {formatPrice(gig.precio)}
+                        </div>
+                    </div>
                 )}
 
-                {gig.link_tiquetes ? (
-                    <a 
-                        href={gig.link_tiquetes} 
-                        target='_blank' 
-                        rel='noopener noreferrer' 
-                        className={`flex items-center justify-center gap-2 w-full py-3 border font-bold text-[9px] tracking-[0.2em] uppercase rounded-xl transition-all ${btnStyle}`}
-                    >
-                    {ui.buy} <FontAwesomeIcon icon={faTicketAlt} />
-                    </a>
-                ) : (
-                    <button disabled className={`w-full py-3 border font-bold text-[9px] tracking-[0.2em] uppercase rounded-xl cursor-not-allowed ${isDark ? 'border-white/5 bg-white/5 text-gray-500' : 'border-gray-200 bg-gray-100 text-gray-400'}`}>
-                        {ui.sold}
-                    </button>
+                {/* LOGO ACADEMY */}
+                {isAcademic && (
+                    <div className={`absolute top-0 left-0 z-40 w-16 h-16 flex items-center justify-center rounded-br-2xl border-b border-r transition-all duration-300
+                        ${isDark 
+                            ? 'bg-[#0a0a0a] border-[#333]' 
+                            : 'bg-white border-gray-100'
+                        }
+                    `}>
+                        <GuitarrosisIcon 
+                            className={`w-10 h-auto opacity-95 hover:opacity-100 hover:scale-105 transition-all duration-300 ${iconColorClass}`}
+                        />
+                    </div>
                 )}
-              </div>
+
+                <div className='relative h-64 overflow-hidden'>
+                    {/* FECHA ESTILO SÓLIDO */}
+                    <div className={`absolute left-4 p-3 rounded-2xl text-center min-w-[65px] z-20 border shadow-xl transition-all duration-300
+                        ${isAcademic ? 'top-20' : 'top-4'} 
+                        ${isDark ? 'bg-[#0a0a0a] border-[#333] text-white' : 'bg-white border-gray-200 text-gray-800'}
+                    `}>
+                        <span className='block text-[9px] font-black uppercase tracking-widest mb-1'>{getMonth(gig.fecha)}</span>
+                        <span className='block text-2xl font-espacial leading-none'>{getDay(gig.fecha)}</span>
+                    </div>
+
+                    <img 
+                        src={gig.imagen_url || '/placeholder_gig.jpg'} 
+                        alt={gig.lugar} 
+                        className='w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 filter brightness-[0.6] group-hover:brightness-100' 
+                    />
+                    <div className={`absolute inset-0 bg-gradient-to-t ${isDark ? 'from-[#111111] via-transparent to-transparent' : 'from-white via-transparent to-transparent'}`}></div>
+                </div>
+
+                <div className='p-6 relative'>
+                    <div className={`absolute -top-5 left-6 px-4 py-1.5 rounded-full text-[8px] font-black tracking-[0.2em] uppercase border shadow-md z-20 ${badgeStyle}`}>
+                        <FontAwesomeIcon icon={isAcademic ? faGraduationCap : faMicrophoneAlt} className='mr-2' />
+                        {isAcademic ? (lang === 'ES' ? 'MASTERCLASS' : 'ACADEMIC') : (lang === 'ES' ? 'EN VIVO' : 'LIVE SHOW')}
+                    </div>
+
+                    <div className={`flex items-center gap-2 text-[9px] font-black mb-2 uppercase tracking-widest ${isDark ? 'text-purple-500' : 'text-purple-600'}`}>
+                        <FontAwesomeIcon icon={faMapMarkerAlt} /> {gig.ciudad}
+                    </div>
+                    
+                    <h3 className={`text-xl font-espacial mb-3 leading-tight ${textPrimary}`}>
+                        {gig.lugar}
+                    </h3>
+
+                    {description && (
+                        <p className={`text-xs mb-6 line-clamp-3 leading-relaxed min-h-[3rem] font-medium ${textSecondary}`}>
+                            {description}
+                        </p>
+                    )}
+
+                    {gig.link_tiquetes ? (
+                        <a 
+                            href={gig.link_tiquetes} 
+                            target='_blank' 
+                            rel='noopener noreferrer' 
+                            className={`flex items-center justify-center gap-2 w-full py-3 border font-bold text-[9px] tracking-[0.2em] uppercase rounded-xl transition-all ${btnStyle}`}
+                        >
+                        {ui.buy} <FontAwesomeIcon icon={faTicketAlt} />
+                        </a>
+                    ) : (
+                        <button disabled className={`w-full py-3 border font-bold text-[9px] tracking-[0.2em] uppercase rounded-xl cursor-not-allowed ${isDark ? 'border-[#333] bg-[#222] text-gray-500' : 'border-gray-200 bg-gray-100 text-gray-400'}`}>
+                            {ui.sold}
+                        </button>
+                    )}
+                </div>
+                </div>
+            );
+            })}
+        </div>
+      );
+  }
+
+  return (
+    <div className='w-full space-y-24'>
+        {/* SECCIÓN 1: LIVE SHOWS */}
+        <div>
+            <div className={`flex items-center gap-4 mb-10 border-b pb-4 ${isDark ? 'border-[#333]' : 'border-gray-200'}`}>
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl shadow-sm ${isDark ? 'bg-[#222] text-purple-500' : 'bg-purple-50 text-purple-600'}`}>
+                    <FontAwesomeIcon icon={faMusic} />
+                </div>
+                <h2 className={`text-2xl md:text-3xl font-espacial tracking-tighter ${textPrimary}`}>
+                    {lang === 'EN' ? 'LIVE SHOWS' : 'CONCIERTOS EN VIVO'}
+                </h2>
             </div>
-          );
-        })}
-      </div>
+            {renderCards(liveGigs)}
+        </div>
+
+        {/* SECCIÓN 2: ACADEMY / MASTERCLASSES */}
+        <div>
+            <div className={`flex items-center gap-4 mb-10 border-b pb-4 ${isDark ? 'border-[#333]' : 'border-gray-200'}`}>
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl shadow-sm ${isDark ? 'bg-[#222] text-cyan-500' : 'bg-cyan-50 text-cyan-600'}`}>
+                    <FontAwesomeIcon icon={faLaptopHouse} />
+                </div>
+                <h2 className={`text-2xl md:text-3xl font-espacial tracking-tighter ${textPrimary}`}>
+                    {lang === 'EN' ? 'WORKSHOPS & MASTERCLASSES' : 'TALLERES & EVENTOS'}
+                </h2>
+            </div>
+            {renderCards(academicGigs)}
+        </div>
     </div>
   );
 };

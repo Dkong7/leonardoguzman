@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import pb from '../../lib/pocketbase';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faTimes, faCalendarCheck, faUserGraduate, faEnvelope, faInfoCircle } from '@fortawesome/free-solid-svg-icons';
+import { faTimes, faCalendarCheck, faUserGraduate, faEnvelope } from '@fortawesome/free-solid-svg-icons';
 
 interface ModalProps {
     date: Date;
@@ -11,7 +11,6 @@ interface ModalProps {
 
 const AgendaModal = ({ date, onClose, onSave }: ModalProps) => {
     const [students, setStudents] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
     const [formData, setFormData] = useState({
         titulo: '',
         hora: '10:00',
@@ -21,7 +20,6 @@ const AgendaModal = ({ date, onClose, onSave }: ModalProps) => {
         notas: ''
     });
 
-    // Cargar lista de estudiantes de PocketBase al abrir
     useEffect(() => {
         const fetchStudents = async () => {
             try {
@@ -31,8 +29,6 @@ const AgendaModal = ({ date, onClose, onSave }: ModalProps) => {
                 setStudents(records);
             } catch (error) {
                 console.error("Error cargando estudiantes:", error);
-            } finally {
-                setLoading(false);
             }
         };
         fetchStudents();
@@ -41,8 +37,6 @@ const AgendaModal = ({ date, onClose, onSave }: ModalProps) => {
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-200">
             <div className="bg-[#26201b] border border-orange-600/30 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
-                
-                {/* HEADER */}
                 <div className="p-6 bg-[#211c18] border-b border-[#443b34] flex justify-between items-center">
                     <div className="flex items-center gap-3">
                         <div className="text-orange-500"><FontAwesomeIcon icon={faCalendarCheck} size="lg" /></div>
@@ -54,14 +48,12 @@ const AgendaModal = ({ date, onClose, onSave }: ModalProps) => {
                 </div>
 
                 <div className="p-8 space-y-6">
-                    {/* INFO FECHA */}
                     <div className="bg-[#1c1917] p-4 rounded-2xl border border-[#443b34]">
                         <label className="text-[9px] font-black text-orange-500 uppercase tracking-[0.2em] mb-1 block">Fecha de Actividad</label>
                         <p className="text-white font-bold capitalize">{date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
                     </div>
 
                     <div className="space-y-4">
-                        {/* TÍTULO */}
                         <input 
                             type="text" 
                             placeholder="TÍTULO DE LA CLASE O EVENTO" 
@@ -70,7 +62,6 @@ const AgendaModal = ({ date, onClose, onSave }: ModalProps) => {
                             onChange={(e) => setFormData({...formData, titulo: e.target.value})}
                         />
 
-                        {/* ESTUDIANTE (VINCULADO A POCKETBASE) */}
                         <div className="relative">
                             <select 
                                 className="w-full bg-[#1c1917] border border-[#443b34] p-4 rounded-xl text-white font-bold outline-none focus:border-orange-600 appearance-none uppercase text-xs"
@@ -86,14 +77,12 @@ const AgendaModal = ({ date, onClose, onSave }: ModalProps) => {
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
-                            {/* HORA */}
                             <input 
                                 type="time" 
                                 className="bg-[#1c1917] border border-[#443b34] p-4 rounded-xl text-white font-bold outline-none focus:border-orange-600"
                                 value={formData.hora}
                                 onChange={(e) => setFormData({...formData, hora: e.target.value})}
                             />
-                            {/* TIPO */}
                             <select 
                                 className="bg-[#1c1917] border border-[#443b34] p-4 rounded-xl text-white font-bold outline-none focus:border-orange-600 uppercase text-xs"
                                 value={formData.tipo}
@@ -105,7 +94,6 @@ const AgendaModal = ({ date, onClose, onSave }: ModalProps) => {
                             </select>
                         </div>
 
-                        {/* NOTIFICACIÓN POR EMAIL */}
                         <div className="flex items-center justify-between bg-[#1c1917]/50 p-4 rounded-xl border border-[#443b34]/50">
                             <div className="flex items-center gap-3">
                                 <FontAwesomeIcon icon={faEnvelope} className={formData.enviarEmail ? "text-orange-500" : "text-[#443b34]"} />
@@ -119,7 +107,6 @@ const AgendaModal = ({ date, onClose, onSave }: ModalProps) => {
                             />
                         </div>
 
-                        {/* NOTAS */}
                         <textarea 
                             placeholder="NOTAS ADICIONALES PARA EL ESTUDIANTE..."
                             className="w-full bg-[#1c1917] border border-[#443b34] p-4 rounded-xl text-[#e7e5e4] text-xs h-24 focus:border-orange-600 outline-none scrollbar-hide"

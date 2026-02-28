@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
     faMusic, faStore, faSignOutAlt, faUsers, faChartPie, 
-    faCalendarAlt, faMicrophoneAlt, faPlus
+    faMicrophoneAlt, faReceipt
 } from '@fortawesome/free-solid-svg-icons';
 import { faGoogle } from '@fortawesome/free-brands-svg-icons';
 
@@ -14,15 +14,13 @@ import StudentsList from '../components/dashboard/StudentsList';
 import MusicManager from '../components/dashboard/MusicManager';
 import StoreManager from '../components/dashboard/StoreManager';
 import ConcertsManager from '../components/dashboard/ConcertsManager';
-import AgendaModal from '../components/dashboard/AgendaModal';
+import OrdersManager from '../components/dashboard/OrdersManager';
 
-type Tab = 'overview' | 'music' | 'store' | 'users' | 'concerts';
+type Tab = 'overview' | 'orders' | 'music' | 'store' | 'users' | 'concerts';
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('overview');
-  const [showAgendaModal, setShowAgendaModal] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date());
 
   useEffect(() => {
     if (!pb.authStore.isValid) navigate('/nardonardonardo');
@@ -36,7 +34,6 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-[#1c1917] text-[#e7e5e4] font-sans flex overflow-hidden">
       
-      {/* SIDEBAR TIERRA */}
       <aside className="w-72 bg-[#26201b] border-r border-[#443b34] hidden md:flex flex-col z-20 shadow-2xl">
         <div className="p-8 border-b border-[#443b34] bg-[#211c18] flex items-center gap-3">
           <div className="w-10 h-10 bg-orange-700 rounded-lg flex items-center justify-center font-bold shadow-lg text-white">D</div>
@@ -48,13 +45,13 @@ const Dashboard = () => {
 
         <nav className="flex-1 mt-8 space-y-1">
           <SidebarButton active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} icon={faChartPie} label="Visión General" />
+          <SidebarButton active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} icon={faReceipt} label="Ventas y Pedidos" />
           <SidebarButton active={activeTab === 'users'} onClick={() => setActiveTab('users')} icon={faUsers} label="Estudiantes / CRM" />
           <SidebarButton active={activeTab === 'concerts'} onClick={() => setActiveTab('concerts')} icon={faMicrophoneAlt} label="Tour / Conciertos" />
           <SidebarButton active={activeTab === 'music'} onClick={() => setActiveTab('music')} icon={faMusic} label="Discografía" />
           <SidebarButton active={activeTab === 'store'} onClick={() => setActiveTab('store')} icon={faStore} label="Tiendas (Mix)" />
         </nav>
 
-        {/* BOTÓN GOOGLE CALENDAR DISCRETO */}
         <div className="p-6">
             <button className="w-full bg-[#1a1a1a] hover:bg-[#222] border border-[#443b34] text-[#a8a29e] hover:text-white text-[10px] font-black py-3 rounded-xl flex items-center justify-center gap-3 transition-all shadow-lg uppercase tracking-widest">
                 <FontAwesomeIcon icon={faGoogle} className="text-orange-500" />
@@ -69,37 +66,20 @@ const Dashboard = () => {
         </div>
       </aside>
 
-      {/* CONTENIDO PRINCIPAL */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         <header className="h-16 bg-[#26201b] border-b border-[#443b34] flex justify-between items-center px-8 shadow-md">
           <h2 className="font-black uppercase tracking-tighter text-orange-500">{activeTab} Manager</h2>
-          <div className="flex items-center gap-4">
-             <button 
-                onClick={() => setShowAgendaModal(true)}
-                className="bg-orange-600 hover:bg-orange-500 text-black text-[10px] font-black px-4 py-2 rounded-lg flex items-center gap-2 transition-all"
-             >
-                <FontAwesomeIcon icon={faPlus} /> AGENDAR
-             </button>
-          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-8 bg-[#1c1917]">
             {activeTab === 'overview' && <Overview />}
+            {activeTab === 'orders' && <OrdersManager />}
             {activeTab === 'users' && <StudentsList />}
             {activeTab === 'music' && <MusicManager />}
             {activeTab === 'store' && <StoreManager />}
             {activeTab === 'concerts' && <ConcertsManager />}
         </div>
       </main>
-
-      {/* MODAL DE AGENDA */}
-      {showAgendaModal && (
-          <AgendaModal 
-            date={selectedDate} 
-            onClose={() => setShowAgendaModal(false)} 
-            onSave={(data) => { console.log(data); setShowAgendaModal(false); }} 
-          />
-      )}
     </div>
   );
 };

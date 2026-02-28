@@ -3,25 +3,15 @@ import pb from '../lib/pocketbase';
 import SpaceBackground from '../components/SpaceBackground';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
-    faPlay, faPause, faStepForward, faStepBackward, faVolumeUp,
-    faVideo, faGraduationCap, faHeadphones, faCompactDisc,
+    faPlay, faPause, faStepForward, faStepBackward, 
+    faVideo, faHeadphones, faCompactDisc,
     faChevronLeft, faChevronRight, faLayerGroup
 } from '@fortawesome/free-solid-svg-icons';
 import { faSpotify, faApple, faYoutube, faAmazon } from '@fortawesome/free-brands-svg-icons';
 import { useLanguage } from '../context/LanguageContext';
 import { ThemeContext } from '../context/ThemeContext';
 
-// --- DATA VIDEOS ---
-const academicVideos = [
-  { id: 'zp3bM82SEYI', title: 'Mis Guitarras | Leonardo Guzman', cat: 'GEAR' },
-  { id: 'Wb03MZJ3uNI', title: 'Mi lick favorito de Dimebag', cat: 'LESSON' },
-  { id: 'cFRjPeJfJnM', title: 'James Labrie\'s "Alone" Solo', cat: 'BREAKDOWN' },
-  { id: 'SGZRebnG9P4', title: 'CAGED vs 3 NPS', cat: 'THEORY' },
-  { id: '_rtBPOL64yA', title: 'La Imitación en la Música', cat: 'MINDSET' },
-  { id: 'BHoptNWfGG4', title: 'Neural DSP & Omega Amps', cat: 'REVIEW' },
-  { id: 'zlGCi8jSaNo', title: 'Paul Gilbert Best Solo', cat: 'LESSON' },
-];
-
+// --- DATA VIDEOS MUSICALES ---
 const musicVideos = [
   { id: 'ZDStgP8Dh18', title: 'Afuera (Caifanes Cover)', cat: 'COVER' },
   { id: 'HMXtvfbi2nA', title: 'Te Vengo a Cantar', cat: 'ORIGINAL' },
@@ -62,7 +52,6 @@ const InternalMusicPlayer = ({ isDark, currentTrack, isPlaying, currentTime, dur
     const textSecondary = isDark ? 'text-gray-400' : 'text-gray-500';
     const iconHover = isDark ? 'hover:text-purple-300' : 'hover:text-purple-600';
     
-    // Barras de progreso más visibles
     const progressBg = isDark ? 'bg-white/20' : 'bg-gray-300';
     const progressFill = isDark ? 'bg-purple-400 box-shadow-glow' : 'bg-purple-600';
     const progressPercent = duration ? (currentTime / duration) * 100 : 0;
@@ -96,7 +85,6 @@ const InternalMusicPlayer = ({ isDark, currentTrack, isPlaying, currentTime, dur
                         )}
                     </div>
                     <div className="w-full px-2">
-                        {/* APLICADO FONT-ESPACIAL */}
                         <h4 className={`text-2xl font-espacial truncate leading-tight ${textPrimary} drop-shadow-md`}>
                             {currentTrack ? currentTrack.titulo : "SELECT TRACK"}
                         </h4>
@@ -108,7 +96,7 @@ const InternalMusicPlayer = ({ isDark, currentTrack, isPlaying, currentTime, dur
 
                 {/* Controls (Big) */}
                 <div className="flex flex-col gap-6 mt-2">
-                     {/* Progress */}
+                      {/* Progress */}
                     <div className="w-full">
                         <div className="relative group cursor-pointer w-full h-4 flex items-center">
                             <input 
@@ -179,7 +167,6 @@ const Musica = () => {
 
   const isDark = theme === 'purple';
   const scrollRefMusic = useRef<HTMLDivElement>(null);
-  const scrollRefAcademic = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     audioRef.current = new Audio();
@@ -218,7 +205,7 @@ const Musica = () => {
       if (audio) {
           const updateTime = () => setCurrentTime(audio.currentTime);
           const updateMeta = () => setDuration(audio.duration);
-          const nextTrack = () => { /* Logica next simplificada */ setIsPlaying(false); };
+          const nextTrack = () => { setIsPlaying(false); };
           audio.addEventListener('timeupdate', updateTime);
           audio.addEventListener('loadedmetadata', updateMeta);
           audio.addEventListener('ended', nextTrack);
@@ -242,37 +229,33 @@ const Musica = () => {
   const textPrimary = isDark ? 'text-white' : 'text-gray-900';
 
   // --- COMPONENTES UI HELPERS ---
-  const VideoThumbnail = ({ video }: { video: any }) => (
+  
+  // NUEVO: Tarjeta de Video Vertical (Estilo "Card / Short")
+  const VerticalVideoCard = ({ video }: { video: any }) => (
     <div 
       onClick={() => { setActiveVideo(video); document.getElementById('video-display')?.scrollIntoView({ behavior: 'smooth' }); }}
-      className={`relative flex-shrink-0 cursor-pointer group rounded-xl overflow-hidden w-[180px] md:w-[220px] aspect-video transition-all duration-300 border-2
-        ${activeVideo.id === video.id ? 'border-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.6)]' : 'border-transparent opacity-80 hover:opacity-100'}
+      className={`relative flex-shrink-0 cursor-pointer group rounded-2xl overflow-hidden w-[150px] md:w-[200px] aspect-[3/4] transition-all duration-300 border-2
+        ${activeVideo.id === video.id ? 'border-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.6)] scale-[1.02]' : 'border-transparent opacity-80 hover:opacity-100 hover:scale-105'}
       `}
     >
-        <img src={`https://img.youtube.com/vi/${video.id}/mqdefault.jpg`} alt={video.title} className="w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-black/40 group-hover:bg-transparent transition-colors flex items-center justify-center">
-            <FontAwesomeIcon icon={faPlay} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" size="lg" />
+        <img src={`https://img.youtube.com/vi/${video.id}/mqdefault.jpg`} alt={video.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+        
+        {/* Gradiente oscuro abajo para que el texto sea legible */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-4">
+            <span className="text-[10px] font-black text-purple-400 uppercase tracking-widest mb-1 drop-shadow-md">{video.cat}</span>
+            <p className="text-sm text-white leading-tight font-bold line-clamp-3 drop-shadow-md">{video.title}</p>
         </div>
-    </div>
-  );
 
-  const VerticalVideoThumbnail = ({ video }: { video: any }) => (
-    <div 
-      onClick={() => { setActiveVideo(video); document.getElementById('video-display')?.scrollIntoView({ behavior: 'smooth' }); }}
-      className={`relative flex-shrink-0 cursor-pointer group rounded-xl overflow-hidden w-[140px] md:w-[170px] aspect-[3/4] transition-all duration-300 border-2
-        ${activeVideo.id === video.id ? 'border-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.6)]' : 'border-transparent opacity-80 hover:opacity-100'}
-      `}
-    >
-        <img src={`https://img.youtube.com/vi/${video.id}/mqdefault.jpg`} alt={video.title} className="w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent flex flex-col justify-end p-3">
-            <span className="text-[9px] font-black text-purple-400 uppercase tracking-widest mb-1">{video.cat}</span>
-            <p className="text-[10px] text-white leading-tight font-bold line-clamp-3">{video.title}</p>
+        {/* Icono de Play que aparece al hacer hover */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-12 h-12 bg-purple-600/80 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 backdrop-blur-sm">
+                <FontAwesomeIcon icon={faPlay} className="text-white ml-1" />
+            </div>
         </div>
     </div>
   );
 
   return (
-    // FONDO PRINCIPAL TRANSPARENTE PARA DEJAR VER LAS ESTRELLAS
     <div className={`min-h-screen relative font-sans pb-32 transition-colors duration-500 ${isDark ? 'bg-transparent' : 'bg-[#f0f2f5]'}`}>
       
       {/* FONDO DE ESTRELLAS FIJO */}
@@ -282,7 +265,7 @@ const Musica = () => {
           </div>
       )}
       
-      {/* HEADER: APLICADO FONT-ESPACIAL */}
+      {/* HEADER */}
       <div className="relative pt-36 pb-16 text-center z-10">
           <h1 className={`text-6xl md:text-8xl font-espacial tracking-tighter uppercase mb-4 ${textPrimary} drop-shadow-[0_0_30px_rgba(168,85,247,0.3)]`}>
               {t('discography')}
@@ -297,7 +280,6 @@ const Musica = () => {
               {/* IZQUIERDA: CONSOLA DIGITAL (PLAYER) */}
               <div className="lg:col-span-5 xl:col-span-4 lg:sticky lg:top-32 z-30">
                   <div className="flex items-center justify-between px-4 mb-4">
-                      {/* APLICADO FONT-ESPACIAL */}
                       <h3 className={`text-xs font-espacial uppercase tracking-[0.3em] ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
                           <FontAwesomeIcon icon={faHeadphones} className="mr-2" /> {t('now_playing')}
                       </h3>
@@ -346,7 +328,6 @@ const Musica = () => {
                           <div className="flex-grow min-w-0 flex flex-col justify-center">
                               <div className="flex justify-between items-start mb-2">
                                   <div>
-                                      {/* APLICADO FONT-ESPACIAL */}
                                       <h3 className={`text-2xl font-espacial truncate leading-tight ${textPrimary} ${currentTrack?.id === album.id ? 'text-purple-500' : ''}`}>
                                           {album.titulo}
                                       </h3>
@@ -374,9 +355,10 @@ const Musica = () => {
               </div>
           </div>
 
-          {/* SECCIÓN VIDEOS */}
+          {/* SECCIÓN VIDEOS OFICIALES */}
           <div id="video-display" className="space-y-16">
-              {/* VIDEO PLAYER: APLICADO FONT-ESPACIAL */}
+              
+              {/* VIDEO PLAYER EN GRANDE */}
               <div className={`max-w-5xl mx-auto rounded-[3rem] overflow-hidden p-3 transition-all ${isDark ? 'bg-white/5 border border-white/10' : 'bg-white shadow-xl'}`}>
                   <div className="relative w-full aspect-video rounded-[2.5rem] overflow-hidden bg-black shadow-2xl">
                       <iframe src={`https://www.youtube.com/embed/${activeVideo.id}?autoplay=0&rel=0&modestbranding=1`} title="Video Player" allowFullScreen className="w-full h-full border-none"></iframe>
@@ -387,11 +369,10 @@ const Musica = () => {
                   </div>
               </div>
 
-              {/* CAROUSELS */}
+              {/* CAROUSEL ÚNICO DE VIDEOS (FORMATO CARD VERTICAL) */}
               <div className="space-y-20 py-8 pl-2">
                   <div>
                       <div className="flex justify-between items-end mb-8 pr-4 border-b border-gray-800 pb-4">
-                          {/* APLICADO FONT-ESPACIAL */}
                           <h3 className={`text-2xl font-espacial ${textPrimary}`}>
                             <FontAwesomeIcon icon={faVideo} className="mr-3 text-purple-500" /> {t('official_videos')}
                           </h3>
@@ -401,23 +382,7 @@ const Musica = () => {
                           </div>
                       </div>
                       <div ref={scrollRefMusic} className="flex overflow-x-auto gap-6 pb-6 hide-scrollbar scroll-smooth snap-x">
-                          {musicVideos.map(v => <VideoThumbnail key={v.id} video={v} />)}
-                      </div>
-                  </div>
-
-                  <div>
-                      <div className="flex justify-between items-end mb-8 pr-4 border-b border-gray-800 pb-4">
-                          {/* APLICADO FONT-ESPACIAL */}
-                          <h3 className={`text-2xl font-espacial ${textPrimary}`}>
-                            <FontAwesomeIcon icon={faGraduationCap} className="mr-3 text-red-500" /> {t('academic_gear')}
-                          </h3>
-                          <div className="flex gap-3">
-                              <button onClick={() => scroll(scrollRefAcademic, -300)} className={`w-10 h-10 rounded-full border transition-all ${isDark ? 'border-white/20 hover:bg-white/10 text-white' : 'border-gray-300 hover:bg-gray-100 text-gray-600'}`}><FontAwesomeIcon icon={faChevronLeft}/></button>
-                              <button onClick={() => scroll(scrollRefAcademic, 300)} className={`w-10 h-10 rounded-full border transition-all ${isDark ? 'border-white/20 hover:bg-white/10 text-white' : 'border-gray-300 hover:bg-gray-100 text-gray-600'}`}><FontAwesomeIcon icon={faChevronRight}/></button>
-                          </div>
-                      </div>
-                      <div ref={scrollRefAcademic} className="flex overflow-x-auto gap-5 pb-6 hide-scrollbar scroll-smooth snap-x">
-                          {academicVideos.map(v => <VerticalVideoThumbnail key={v.id} video={v} />)}
+                          {musicVideos.map(v => <VerticalVideoCard key={v.id} video={v} />)}
                       </div>
                   </div>
               </div>

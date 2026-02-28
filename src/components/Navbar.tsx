@@ -63,26 +63,12 @@ const Navbar = () => {
   const classBtnText = lang === 'ES' ? 'CLASES' : 'LESSONS';
 
   return (
-    <nav className={`fixed top-0 left-0 w-full z-50 navbar-controller transition-all duration-300 ${scrolled ? 'pt-2' : 'pt-8'}`}>
+    <nav className={`fixed top-0 left-0 w-full z-50 transition-all duration-300 ${scrolled ? 'pt-2' : 'pt-8'}`}>
       
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap');
         
         .font-espacial { font-family: 'Orbitron', sans-serif; }
-
-        .navbar-controller {
-          --picos-top-pos-mobile: -30px;    
-          --picos-bottom-pos-mobile: 48px;  
-          --picos-top-pos-desktop: -34px;   
-          --picos-bottom-pos-desktop: 55px; 
-        }
-
-        @media (min-width: 768px) {
-          .navbar-controller {
-            --picos-top-pos-mobile: var(--picos-top-pos-desktop);
-            --picos-bottom-pos-mobile: var(--picos-bottom-pos-desktop);
-          }
-        }
 
         .navbar-main-block {
           height: 70px; 
@@ -103,34 +89,6 @@ const Navbar = () => {
           background-position: center;
           background-repeat: no-repeat;
           z-index: -1;
-        }
-
-        .spikes-top {
-          position: absolute;
-          top: var(--picos-top-pos-mobile);
-          left: 0;
-          width: 100%;
-          height: 40px; 
-          background-image: url('/picos-top.png');
-          background-repeat: repeat-x;
-          background-position: bottom center;
-          background-size: auto 100%;
-          z-index: 11;
-          pointer-events: none;
-        }
-
-        .spikes-bottom {
-          position: absolute;
-          top: var(--picos-bottom-pos-mobile);
-          left: 0;
-          width: 100%;
-          height: 60px; 
-          background-image: url('/picos-bottom.png');
-          background-repeat: repeat-x;
-          background-position: top center;
-          background-size: auto 100%;
-          z-index: 11;
-          pointer-events: none;
         }
 
         .logo-glow { animation: logo-pulse 2s infinite alternate ease-in-out; }
@@ -160,12 +118,6 @@ const Navbar = () => {
           opacity: 0.9 !important;
         }
 
-        html.tema-oscuro .spikes-top,
-        html.tema-oscuro .spikes-bottom {
-          filter: grayscale(100%) brightness(0.4) contrast(1.2) !important;
-          opacity: 0.9 !important;
-        }
-
         html.tema-oscuro .navbar-main-block a.text-purple-200 { color: #d1d5db !important; text-shadow: none !important; }
         html.tema-oscuro .navbar-main-block a.text-white { color: #ffffff !important; }
         
@@ -183,8 +135,6 @@ const Navbar = () => {
 
       <div className="navbar-main-block transition-all duration-300">
         <div className="bg-navbar-img"></div>
-        <div className="spikes-top"></div>
-        <div className="spikes-bottom"></div>
 
         <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between relative z-20">
           <Link to='/' className='group flex items-center'>

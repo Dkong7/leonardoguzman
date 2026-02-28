@@ -4,16 +4,16 @@ import pb from '../lib/pocketbase';
 import { CartContext } from '../context/CartContext';
 import type { CartItem } from '../context/CartContext';
 import { useLanguage } from '../context/LanguageContext';
-import { ThemeContext } from '../context/ThemeContext'; // 1. Importar Contexto Tema
-import SpaceBackground from '../components/SpaceBackground'; // 2. Importar Fondo Espacial
+import { ThemeContext } from '../context/ThemeContext';
+import SpaceBackground from '../components/SpaceBackground';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
-    faShoppingCart, faImages, faTimes, faSpinner, faShirt, faArrowRight
+    faShoppingCart, faTimes, faSpinner, faShirt 
 } from '@fortawesome/free-solid-svg-icons';
 
 const Tienda = () => {
   const { t, lang } = useLanguage();
-  const { theme } = useContext(ThemeContext); // 3. Usar el tema
+  const { theme } = useContext(ThemeContext);
   const { addToCart } = useContext(CartContext);
   
   const [products, setProducts] = useState<any[]>([]);
@@ -22,7 +22,7 @@ const Tienda = () => {
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
   const [activeImage, setActiveImage] = useState<string>('');
 
-  const isDark = theme === 'purple'; // Helper para lógica rápida
+  const isDark = theme === 'purple';
 
   useEffect(() => {
     const fetchData = async () => {
@@ -53,7 +53,6 @@ const Tienda = () => {
   const getDescription = (prod: any) => (lang === 'EN' && prod.descripcion_en ? prod.descripcion_en : prod.descripcion);
 
   const renderPrice = (prod: any, large = false) => {
-    // Color de texto dinámico para el precio
     const priceColor = isDark ? 'text-white' : 'text-purple-900';
     const labelColor = isDark ? 'text-purple-400' : 'text-purple-600';
 
@@ -88,27 +87,23 @@ const Tienda = () => {
       imagen: record.imagen ? pb.files.getUrl(record, record.imagen) : '',
       categoria: record.tipo,
       descripcion: getDescription(record),
-      cantidad: 1
+      cantidad: 1,
+      tipo: 'fisico'
     };
+    // @ts-ignore
     addToCart(item);
   };
 
   const merchAudioItems = products.filter(i => i.tipo !== 'academico'); 
 
-  // --- ESTILOS DINÁMICOS (GLASS & NEUMORPHISM) ---
-  
-  // Fondo base de la tarjeta
+  // --- ESTILOS DINÁMICOS ---
   const cardBase = isDark 
-    ? "bg-white/5 border-white/10 hover:border-purple-500/50 hover:bg-white/10 text-white shadow-[0_8px_32px_0_rgba(0,0,0,0.5)]" // Dark Glass
-    : "bg-white/70 border-purple-200 hover:border-purple-500/50 hover:bg-white text-gray-900 shadow-[8px_8px_16px_#d1d5db,-8px_-8px_16px_#ffffff]"; // Light Neumorphism (Soft)
+    ? "bg-white/5 border-white/10 hover:border-purple-500/50 hover:bg-white/10 text-white shadow-[0_8px_32px_0_rgba(0,0,0,0.5)]" 
+    : "bg-white/70 border-purple-200 hover:border-purple-500/50 hover:bg-white text-gray-900 shadow-[8px_8px_16px_#d1d5db,-8px_-8px_16px_#ffffff]";
 
-  // Botón pequeño (Carrito)
   const btnSmall = isDark
     ? "bg-white/5 text-gray-200 shadow-[inset_1px_1px_5px_rgba(255,255,255,0.1),inset_-1px_-1px_5px_rgba(0,0,0,0.5)] hover:text-white hover:bg-purple-600/40"
     : "bg-gray-100 text-purple-700 shadow-[3px_3px_6px_#b8b9be,-3px_-3px_6px_#ffffff] hover:text-purple-900 hover:shadow-[inset_2px_2px_5px_#b8b9be,inset_-2px_-2px_5px_#ffffff]";
-
-  // Texto Secundario
-  const textSub = isDark ? "text-gray-400 group-hover:text-purple-300" : "text-gray-600 group-hover:text-purple-600";
 
   if (loading) return (
     <div className={`min-h-screen flex items-center justify-center ${isDark ? 'bg-[#0a0510] text-purple-500' : 'bg-gray-100 text-purple-600'}`}>
@@ -119,10 +114,7 @@ const Tienda = () => {
   return (
     <div className={`min-h-screen font-sans relative pb-20 transition-colors duration-500 ${isDark ? 'bg-transparent' : 'bg-gray-50'}`}>
       
-      {/* 4. FONDO ESPACIAL (Solo visible si el bg principal es transparente o en modo dark) */}
       {isDark && <SpaceBackground />} 
-
-      {/* Degradado sutil para modo claro para que no se vea plano */}
       {!isDark && <div className="absolute inset-0 bg-gradient-to-b from-white via-gray-100 to-gray-200 -z-10" />}
 
       <style>{`
@@ -160,14 +152,12 @@ const Tienda = () => {
                         onClick={() => setSelectedItem(item)} 
                         className={`group relative cursor-pointer flex flex-col h-full rounded-2xl overflow-hidden transition-all duration-500 hover:-translate-y-2 backdrop-blur-sm z-10 ${cardBase}`}
                     >
-                        {/* Imagen Vertical */}
                         <div className="relative aspect-[3/4] overflow-hidden">
                             <img 
                                 src={item.imagen ? pb.files.getUrl(item, item.imagen) : '/placeholder.jpg'} 
                                 alt={item.nombre} 
                                 className='w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 opacity-95 group-hover:opacity-100' 
                             />
-                            {/* Overlay dinámico */}
                             <div className={`absolute inset-0 bg-gradient-to-t via-transparent to-transparent ${isDark ? 'from-[#0f0a15] opacity-80' : 'from-white opacity-40'}`}></div>
                             
                             <div className="absolute top-3 left-3">
@@ -177,7 +167,6 @@ const Tienda = () => {
                             </div>
                         </div>
 
-                        {/* Info */}
                         <div className={`p-5 flex-1 flex flex-col justify-between backdrop-blur-[2px] ${isDark ? 'bg-gradient-to-b from-white/0 to-black/40' : 'bg-white/30'}`}>
                             <h3 className={`font-espacial text-sm mb-1 leading-tight line-clamp-2 transition-colors ${isDark ? 'text-white group-hover:text-purple-300' : 'text-gray-900 group-hover:text-purple-600'}`}>
                                 {getName(item)}
@@ -228,7 +217,6 @@ const Tienda = () => {
                         <FontAwesomeIcon icon={faTimes} size="lg" />
                     </button>
 
-                    {/* Galería (Izquierda) */}
                     <div className={`w-full md:w-2/3 p-6 flex items-center justify-center relative min-h-[400px] ${isDark ? 'bg-black/40' : 'bg-gray-100/50'}`}>
                          <img 
                             src={activeImage} 
@@ -236,7 +224,6 @@ const Tienda = () => {
                             alt="Preview"
                          />
                          
-                         {/* Miniaturas */}
                          {selectedItem.galeria && selectedItem.galeria.length > 0 && (
                              <div className={`absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-3 p-3 rounded-2xl border overflow-x-auto max-w-[90%] backdrop-blur-md
                                 ${isDark ? 'bg-black/60 border-white/10' : 'bg-white/60 border-gray-200'}
@@ -250,20 +237,19 @@ const Tienda = () => {
                                  {selectedItem.galeria.map((img: string, idx: number) => {
                                      const url = pb.files.getUrl(selectedItem, img);
                                      return (
-                                        <button 
-                                            key={idx}
-                                            onClick={() => setActiveImage(url)}
-                                            className={`h-16 w-16 rounded-lg overflow-hidden border-2 transition-all shrink-0 ${activeImage === url ? 'border-purple-500' : 'border-transparent hover:border-gray-400'}`}
-                                        >
-                                            <img src={url} className="w-full h-full object-cover" />
-                                        </button>
+                                         <button 
+                                             key={idx}
+                                             onClick={() => setActiveImage(url)}
+                                             className={`h-16 w-16 rounded-lg overflow-hidden border-2 transition-all shrink-0 ${activeImage === url ? 'border-purple-500' : 'border-transparent hover:border-gray-400'}`}
+                                         >
+                                             <img src={url} className="w-full h-full object-cover" />
+                                         </button>
                                      );
                                  })}
                              </div>
                          )}
                     </div>
 
-                    {/* Info (Derecha) */}
                     <div className={`w-full md:w-1/3 p-8 md:p-12 flex flex-col border-l ${isDark ? 'border-white/5 bg-transparent' : 'border-gray-200 bg-white/40'}`}>
                         <h2 className={`text-3xl font-espacial mb-4 leading-none uppercase drop-shadow-lg ${isDark ? 'text-white' : 'text-purple-900'}`}>
                             {getName(selectedItem)}

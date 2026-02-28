@@ -13,16 +13,17 @@ const Conciertos = () => {
     window.scrollTo(0, 0);
   }, []);
 
-  // --- ESTILOS DINÁMICOS ---
+  // --- DISEÑO SOBRIO (FASE 2) ---
+  // Se elimina el blur y se cambia a un fondo sólido mate.
   const widgetContainerStyle = isDark 
-    ? 'bg-[#120b18]/40 backdrop-blur-md border border-white/10 shadow-[0_0_50px_rgba(147,51,234,0.1)]' // <-- Más transparencia (/40) y menos blur
-    : 'bg-[#e0e5ec] border border-white/60 shadow-[20px_20px_60px_#bebebe,-20px_-20px_60px_#ffffff]';
+    ? 'bg-[#0a0a0a] border border-[#222222] shadow-2xl' 
+    : 'bg-[#f4f4f5] border border-gray-200 shadow-xl';
 
-  const textPrimary = isDark ? 'text-white' : 'text-gray-800';
-  const textSecondary = isDark ? 'text-gray-400' : 'text-gray-500';
+  const textPrimary = isDark ? 'text-white' : 'text-gray-900';
+  const textSecondary = isDark ? 'text-gray-500' : 'text-gray-600';
 
   return (
-    <div className={`min-h-screen relative font-sans pb-32 transition-colors duration-500 overflow-hidden ${isDark ? 'bg-[#050505]' : 'bg-[#e0e5ec]'}`}>
+    <div className={`min-h-screen relative font-sans pb-32 transition-colors duration-500 overflow-hidden ${isDark ? 'bg-[#000000]' : 'bg-[#e0e5ec]'}`}>
       
       {/* FONDO DE ESTRELLAS */}
       {isDark && (
@@ -34,11 +35,11 @@ const Conciertos = () => {
       {/* HEADER */}
       <div className="relative pt-36 pb-12 text-center z-10 px-4">
           <h1 className={`text-6xl md:text-8xl font-espacial tracking-tighter uppercase mb-6 ${textPrimary} drop-shadow-2xl`}>
-              TOUR <span className={`text-transparent bg-clip-text bg-gradient-to-r ${isDark ? 'from-purple-400 to-pink-500' : 'from-purple-600 to-purple-800'}`}>{t('tour_dates_highlight')}</span>
+              TOUR <span className={`text-transparent bg-clip-text bg-gradient-to-r ${isDark ? 'from-purple-500 to-purple-700' : 'from-purple-600 to-purple-800'}`}>{t('tour_dates_highlight')}</span>
           </h1>
           
           <div className="flex flex-col items-center gap-4">
-              <div className={`h-1 w-24 rounded-full ${isDark ? 'bg-purple-600 shadow-[0_0_15px_#9333ea]' : 'bg-purple-500'}`}></div>
+              <div className={`h-1 w-24 rounded-full ${isDark ? 'bg-purple-700' : 'bg-purple-500'}`}></div>
               <p className={`text-xs md:text-sm font-bold uppercase tracking-[0.3em] max-w-2xl mx-auto leading-relaxed ${textSecondary}`}>
                   {t('tour_subtitle')}
               </p>

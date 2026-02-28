@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react';
 import pb from '../../lib/pocketbase';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
-    faPlus, faTrash, faGuitar, faPlayCircle, faEdit, faTimes, 
+    faPlus, faTrash, faPlayCircle, faEdit, faTimes, 
     faSave, faCloudUploadAlt, faCompactDisc, faEye, faEyeSlash, faPauseCircle 
 } from '@fortawesome/free-solid-svg-icons';
 import { 
-    faSpotify, faApple, faYoutube, faSoundcloud, faBandcamp 
+    faSpotify, faApple, faYoutube, faSoundcloud 
 } from '@fortawesome/free-brands-svg-icons';
 
 const MusicManager = () => {
@@ -45,7 +45,6 @@ const MusicManager = () => {
         } else {
             setCurrentTrack(trackUrl);
             setIsPlaying(true);
-            // Pequeño timeout para permitir que el src cambie
             setTimeout(() => audio.play(), 100);
         }
     };
@@ -92,7 +91,7 @@ const MusicManager = () => {
             data.append('tipo', formData.tipo);
             data.append('anio', formData.anio.toString());
             data.append('publico', formData.publico.toString());
-            data.append('links', JSON.stringify(formData.links)); // Guardamos links como JSON
+            data.append('links', JSON.stringify(formData.links));
             
             if (formData.cover) {
                 data.append('cover', formData.cover);
@@ -118,7 +117,7 @@ const MusicManager = () => {
     };
 
     return (
-        <div className="space-y-6 pb-24 relative"> {/* Padding bottom para el player */}
+        <div className="space-y-6 pb-24 relative">
             
             {/* HEADER */}
             <div className="flex justify-between items-center border-b border-[#443b34] pb-6">
@@ -137,12 +136,11 @@ const MusicManager = () => {
             {/* LISTA DE TRACKS */}
             <div className="grid grid-cols-1 gap-3">
                 {music.map(m => {
-                    const trackFileUrl = m.audio ? pb.files.getUrl(m, m.audio) : null; // Asumiendo campo 'audio'
+                    const trackFileUrl = m.audio ? pb.files.getUrl(m, m.audio) : null;
                     const isCurrent = currentTrack === trackFileUrl;
 
                     return (
                         <div key={m.id} className="bg-[#26201b] border border-[#443b34] p-4 rounded-xl flex items-center gap-5 hover:bg-[#2f2822] transition-all group relative overflow-hidden">
-                            {/* Status Indicator */}
                             <div className={`absolute left-0 top-0 bottom-0 w-1 ${m.publico ? 'bg-green-500' : 'bg-[#443b34]'}`}></div>
 
                             <div className="w-16 h-16 bg-[#1c1917] rounded-lg overflow-hidden shadow-2xl border border-[#443b34] relative group-hover:scale-105 transition-transform">
@@ -194,7 +192,6 @@ const MusicManager = () => {
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="bg-[#26201b] border border-orange-600/30 w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row h-[600px] animate-in zoom-in-95">
                         
-                        {/* COLUMNA IZQ: ARTE Y VISIBILIDAD */}
                         <div className="w-full md:w-1/3 bg-[#1f1a17] border-r border-[#443b34] p-6 flex flex-col items-center">
                             <label className="w-48 h-48 bg-[#1c1917] border-2 border-dashed border-[#443b34] rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-orange-500 hover:text-orange-500 transition-all group overflow-hidden relative shadow-xl">
                                 {previewUrl ? (
@@ -223,7 +220,6 @@ const MusicManager = () => {
                             </div>
                         </div>
 
-                        {/* COLUMNA DER: DATOS & DSPs */}
                         <div className="flex-1 flex flex-col bg-[#26201b]">
                             <div className="p-6 border-b border-[#443b34] flex justify-between items-center">
                                 <h3 className="font-black text-[#e7e5e4] uppercase tracking-widest text-sm">Metadatos del Release</h3>
@@ -231,7 +227,6 @@ const MusicManager = () => {
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-8 space-y-6">
-                                {/* Datos Básicos */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="col-span-2">
                                         <label className="text-[10px] font-bold text-orange-500 uppercase block mb-1">Título</label>
@@ -251,7 +246,6 @@ const MusicManager = () => {
                                     </div>
                                 </div>
 
-                                {/* DSP Links */}
                                 <div className="space-y-3 pt-4 border-t border-[#333]">
                                     <h4 className="text-xs font-black text-[#a8a29e] uppercase mb-2">Plataformas Digitales (Links)</h4>
                                     

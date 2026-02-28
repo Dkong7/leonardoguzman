@@ -4,6 +4,7 @@ type Lang = 'ES' | 'EN';
 
 interface LanguageContextType {
   lang: Lang;
+  setLang: (lang: Lang) => void; // AÑADIDO: Permite cambiar el idioma directamente
   toggleLanguage: () => void;
   t: (key: string) => any; 
 }
@@ -32,7 +33,7 @@ const translations = {
     explore_store: 'EXPLORAR TIENDA COMPLETA',
     official_store: 'TIENDA OFICIAL',
 
-    // --- MÚSICA (PAGE) ---  <-- NUEVO
+    // --- MÚSICA (PAGE) --- 
     discography: 'DISCOGRAFÍA',
     listen_experience: 'ESCUCHA . EXPERIMENTA . SIENTE',
     now_playing: 'REPRODUCIENDO AHORA',
@@ -42,8 +43,8 @@ const translations = {
     academic_gear: 'ACADEMIA Y EQUIPO',
     single_album: 'SENCILLO / ÁLBUM',
 
-    // --- TOUR / CONCIERTOS --- <-- NUEVO
-    tour_dates_highlight: 'FECHAS', // Se usará como "TOUR [FECHAS]"
+    // --- TOUR / CONCIERTOS --- 
+    tour_dates_highlight: 'FECHAS', 
     tour_subtitle: 'PRÓXIMOS CONCIERTOS Y MASTERCLASSES ALREDEDOR DEL MUNDO',
 
     // --- TIENDA (STORE PAGE) ---
@@ -174,7 +175,7 @@ const translations = {
     explore_store: 'EXPLORE FULL STORE',
     official_store: 'OFFICIAL STORE',
 
-    // --- MUSIC (PAGE) --- <-- NEW
+    // --- MUSIC (PAGE) ---
     discography: 'DISCOGRAPHY',
     listen_experience: 'LISTEN . EXPERIENCE . FEEL',
     now_playing: 'NOW PLAYING',
@@ -184,7 +185,7 @@ const translations = {
     academic_gear: 'ACADEMIC & GEAR',
     single_album: 'SINGLE / ALBUM',
 
-    // --- TOUR --- <-- NEW
+    // --- TOUR ---
     tour_dates_highlight: 'DATES',
     tour_subtitle: 'UPCOMING SHOWS & MASTERCLASSES AROUND THE WORLD',
 
@@ -294,13 +295,23 @@ const translations = {
   }
 };
 
-const LanguageContext = createContext<LanguageContextType>({ lang: 'ES', toggleLanguage: () => {}, t: () => '' });
+const LanguageContext = createContext<LanguageContextType>({ 
+    lang: 'ES', 
+    setLang: () => {}, 
+    toggleLanguage: () => {}, 
+    t: () => '' 
+});
 
 export const LanguageProvider = ({ children }: { children: ReactNode }) => {
   const [lang, setLang] = useState<Lang>('ES');
   const toggleLanguage = () => setLang(prev => (prev === 'ES' ? 'EN' : 'ES'));
   const t = (key: string) => (translations[lang] as any)[key] || key; 
-  return <LanguageContext.Provider value={{ lang, toggleLanguage, t }}>{children}</LanguageContext.Provider>;
+  
+  return (
+      <LanguageContext.Provider value={{ lang, setLang, toggleLanguage, t }}>
+          {children}
+      </LanguageContext.Provider>
+  );
 };
 
 export const useLanguage = () => useContext(LanguageContext);
