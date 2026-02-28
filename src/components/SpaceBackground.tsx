@@ -11,20 +11,16 @@ const SpaceBackground = () => {
     return () => window.removeEventListener('estadoMusica', handleEstado);
   }, []);
 
-  // OPTIMIZACIÓN 1: Throttling del Audio Reactivity
-  // Evita que el navegador intente renderizar más frames de los que la pantalla soporta
   useEffect(() => {
     const handleReact = (e: any) => {
       if (!gargantuaRef.current) return;
-
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
 
       rafRef.current = requestAnimationFrame(() => {
         const bass = e.detail; 
-        // Cálculos matemáticos simplificados para menor carga
-        const scale = 1 + (bass * 0.0006); // bass / 255 * 0.15 aprox
-        const glow = 10 + (bass * 0.15);   // bass / 255 * 40 aprox
-        const opacity = 0.7 + (bass * 0.0012); // bass / 255 * 0.3 aprox
+        const scale = 1 + (bass * 0.0006); 
+        const glow = 10 + (bass * 0.15);   
+        const opacity = 0.7 + (bass * 0.0012); 
         
         if (gargantuaRef.current) {
             gargantuaRef.current.style.setProperty('--react-scale', scale.toString());
@@ -40,8 +36,6 @@ const SpaceBackground = () => {
     };
   }, []);
 
-  // OPTIMIZACIÓN 2: Generación de estrellas por Box-Shadow
-  // Convierte cientos de divs en una sola cadena CSS. Rendimiento x100.
   const generateStarBoxShadow = (count: number) => {
     let shadow = "";
     for (let i = 0; i < count; i++) {
@@ -49,7 +43,7 @@ const SpaceBackground = () => {
       const y = Math.random() * 100;
       shadow += `${x}vw ${y}vh #FFF, `;
     }
-    return shadow.slice(0, -2); // Quitar última coma
+    return shadow.slice(0, -2); 
   };
 
   const starsSmall = useMemo(() => generateStarBoxShadow(200), []);
@@ -57,10 +51,10 @@ const SpaceBackground = () => {
   const starsLarge = useMemo(() => generateStarBoxShadow(30), []);
 
   const shootingStars = useMemo(() => {
-    return Array.from({ length: 6 }).map((_, i) => ({ // Bajé de 8 a 6 (imperceptible, ahorra recursos)
+    return Array.from({ length: 6 }).map((_, i) => ({ 
       id: `shooter-${i}`,
-      top: Math.random() * 60 - 20, // Posición inicial aleatoria Y
-      right: Math.random() * 40 - 10, // Posición inicial aleatoria X
+      top: Math.random() * 60 - 20, 
+      right: Math.random() * 40 - 10, 
       animationDelay: `${Math.random() * 15}s`,
       animationDuration: `${Math.random() * 10 + 15}s`, 
       scale: Math.random() * 0.5 + 0.5,
@@ -71,18 +65,15 @@ const SpaceBackground = () => {
     <div className="fixed inset-0 w-full h-full z-[-1] overflow-hidden pointer-events-none transition-colors duration-700 space-master-bg">
       
       <style>{`
-        /* =======================================================
-           SISTEMA MAESTRO DE VARIABLES CSS (THEME SWITCHER)
-           ======================================================= */
         :root {
-          /* TEMA MORADO / ESPACIO PROFUNDO */
-          --bg-main: #0a001a;
+          /* TEMA MORADO PROFUNDO */
+          --bg-main: #05000a; /* <--- MUCHO MÁS OSCURO PARA VER ESTRELLAS */
           --star-base: #ffffff;
           --star-glow-1: rgba(255,255,255,0.8);
           --shooter-head: #ffffff;
           --shooter-tail-1: rgba(255,255,255,1);
           --shooter-tail-2: rgba(217,70,239,0.8);
-          --nebula-op: 0.6;
+          --nebula-op: 0.5; /* <--- REDUCIDO PARA NO TAPAR */
           --nebula-inv: 0;
           
           /* GARGANTUA VARS */
@@ -115,27 +106,23 @@ const SpaceBackground = () => {
 
         .space-master-bg { background-color: var(--bg-main); will-change: background-color; }
 
-        /* NEBULA OPTIMIZADA: will-change para capas de composición */
         .space-nebula {
           position: absolute; inset: -50%;
           background: radial-gradient(ellipse at 30% 40%, rgba(138, 43, 226, 0.15) 0%, transparent 60%), radial-gradient(ellipse at 70% 60%, rgba(217, 70, 239, 0.1) 0%, transparent 50%), radial-gradient(circle at 50% 50%, rgba(76, 29, 149, 0.1) 0%, transparent 70%);
           filter: invert(var(--nebula-inv)) grayscale(calc(var(--nebula-inv) * 100%)) blur(30px);
           opacity: var(--nebula-op);
           transition: filter 0.7s, opacity 0.7s;
-          /* Optimización GPU */
           will-change: transform; 
-          animation: nebula-drift 60s infinite alternate ease-in-out; /* Más lento consume menos */
+          animation: nebula-drift 60s infinite alternate ease-in-out; 
         }
         @keyframes nebula-drift { 0% { transform: translate(0, 0) rotate(0deg); } 100% { transform: translate(-2%, -2%) rotate(2deg); } }
 
-        /* ESTRELLAS OPTIMIZADAS (BOX SHADOW METHOD) */
         .star-layer {
             position: absolute; top: 0; left: 0; right: 0; bottom: 0;
             background: transparent;
             border-radius: 50%;
             animation: twinkle 4s infinite ease-in-out;
         }
-        /* Capas con diferentes tiempos para simular aleatoriedad */
         .stars-s { width: 1px; height: 1px; color: var(--star-base); animation-duration: 3s; }
         .stars-m { width: 2px; height: 2px; color: var(--star-base); animation-duration: 5s; animation-delay: 1s; }
         .stars-l { width: 3px; height: 3px; color: var(--star-base); animation-duration: 7s; animation-delay: 2s; }
@@ -145,10 +132,8 @@ const SpaceBackground = () => {
           50% { opacity: 1; } 
         }
 
-        /* SHOOTING STARS OPTIMIZADAS (GPU TRANSLATE) */
         .shooting-star-container { 
             position: absolute; 
-            /* Rotación inicial */
             transform: rotate(-45deg) translateX(0); 
             opacity: 0; 
             animation: shoot-across linear infinite; 
@@ -157,7 +142,6 @@ const SpaceBackground = () => {
         .shooting-star-tail { position: absolute; top: 0; right: 0; width: 250px; height: 1px; background: linear-gradient(to left, var(--shooter-tail-1) 0%, var(--shooter-tail-2) 20%, transparent 100%); }
         .shooting-star-head { position: absolute; top: 50%; right: 0; transform: translateY(-50%); width: 3px; height: 3px; background: var(--shooter-head); border-radius: 50%; box-shadow: 0 0 10px var(--star-glow-1); z-index: 2; }
         
-        /* Animación optimizada usando translate3d para forzar aceleración hardware */
         @keyframes shoot-across { 
             0% { transform: rotate(-45deg) translate3d(0, 0, 0) scale(var(--scale, 1)); opacity: 0; } 
             1% { opacity: 1; } 
@@ -165,16 +149,15 @@ const SpaceBackground = () => {
             100% { transform: rotate(-45deg) translate3d(-100vmax, 0, 0) scale(var(--scale, 1)); opacity: 0; } 
         }
 
-        /* GARGANTUA OPTIMIZADA */
         .gargantua-wrapper {
-          position: absolute; top: 65%; left: 88%; 
+          position: absolute; top: 50%; left: 75%; 
           transform: translate(-50%, -50%) rotate(45deg) scale(calc(var(--react-scale, 1) * var(--base-scale, 0)));
           transition: transform 0.1s ease-out, opacity 2s ease-in-out;
           opacity: 0; z-index: 5; mix-blend-mode: var(--g-blend);
-          will-change: transform, filter; /* Aviso al navegador */
+          will-change: transform, filter; 
         }
-        @media (max-width: 768px) { .gargantua-wrapper { top: 60%; left: 80%; } }
-        .gargantua-wrapper.active { --base-scale: 1; opacity: 1; }
+        @media (max-width: 1024px) { .gargantua-wrapper { top: 70%; left: 50%; } }
+        .gargantua-wrapper.active { --base-scale: 1.2; opacity: 1; }
         
         .gargantua-core { position: absolute; top: 50%; left: 50%; width: 280px; height: 280px; margin: -140px 0 0 -140px; background: var(--g-core); border-radius: 50%; box-shadow: inset 0 0 20px rgba(0,0,0,1), 0 0 calc(10px + var(--react-glow, 0px)) 2px var(--g-halo); z-index: 10; }
         .gargantua-disk-back { position: absolute; top: 50%; left: 50%; width: 900px; height: 220px; margin: -110px 0 0 -450px; background: radial-gradient(ellipse at center, transparent 32%, var(--g-disk-1) 35%, var(--g-disk-2) 55%, transparent 70%); border-radius: 50%; transform: rotate(-10deg); filter: blur(calc(4px + var(--react-glow, 0px) * 0.1)); opacity: var(--react-opacity, 0.8); z-index: 5; animation: disk-spin 20s linear infinite; }
@@ -182,22 +165,6 @@ const SpaceBackground = () => {
         .gargantua-lensing-top { position: absolute; top: 50%; left: 50%; width: 360px; height: 360px; margin: -230px 0 0 -180px; border-radius: 50%; border-top: 50px solid var(--g-lensing); border-left: 20px solid transparent; border-right: 20px solid transparent; border-bottom: 0px solid transparent; transform: rotate(-10deg); filter: blur(calc(12px + var(--react-glow, 0px) * 0.2)); opacity: var(--react-opacity, 0.8); z-index: 2; }
         .gargantua-lensing-bottom { position: absolute; top: 50%; left: 50%; width: 340px; height: 340px; margin: -110px 0 0 -170px; border-radius: 50%; border-bottom: 30px solid var(--g-lensing); border-left: 10px solid transparent; border-right: 10px solid transparent; border-top: 0px solid transparent; transform: rotate(-10deg); filter: blur(calc(15px + var(--react-glow, 0px) * 0.2)); opacity: calc(var(--react-opacity, 0.8) - 0.2); z-index: 2; }
         @keyframes disk-spin { 0% { transform: rotate(-10deg) scale(1); } 50% { transform: rotate(-10deg) scale(1.02); } 100% { transform: rotate(-10deg) scale(1); } }
-
-        /* REGLAS TEMA OSCURO (Igual que antes) */
-        html.tema-oscuro .bloque-marco img { filter: grayscale(100%) brightness(0.4) contrast(1.2) !important; opacity: 0.85 !important; }
-        html.tema-oscuro .player-bg-inner { background: rgba(230, 230, 230, 0.4) !important; border: 1px solid rgba(0,0,0,0.1) !important; box-shadow: inset 2px 2px 10px rgba(255,255,255,0.5), 0 15px 40px rgba(0,0,0,0.1) !important; backdrop-filter: blur(20px) !important; }
-        html.tema-oscuro .texto-titulo { color: #111 !important; text-shadow: none !important;}
-        html.tema-oscuro .texto-artista { color: #444 !important; }
-        html.tema-oscuro .texto-tiempo { color: #666 !important; }
-        html.tema-oscuro .iconos-dsp a { color: #666 !important; }
-        html.tema-oscuro .iconos-dsp a:hover { color: #000 !important; }
-        html.tema-oscuro .botones-control button { color: #444 !important; }
-        html.tema-oscuro .botones-control button:hover { color: #000 !important; }
-        html.tema-oscuro .botones-control .bg-white { background-color: #111 !important; color: #fff !important; box-shadow: 4px 4px 15px rgba(0,0,0,0.2), -2px -2px 10px rgba(255,255,255,0.8) !important; }
-        html.tema-oscuro .bloque-playlist { background: rgba(255,255,255,0.7) !important; border-color: rgba(0,0,0,0.1) !important; }
-        html.tema-oscuro .playlist-item-title { color: #111 !important; }
-        html.tema-oscuro .playlist-item-artist { color: #555 !important; }
-        html.tema-oscuro .playlist-item-active { background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.1) !important; }
       `}</style>
 
       <div className="space-nebula"></div>
@@ -210,7 +177,6 @@ const SpaceBackground = () => {
         <div className="gargantua-disk-front"></div>
       </div>
 
-      {/* ESTRELLAS OPTIMIZADAS: Solo 3 divs en lugar de 300 */}
       <div className="star-layer stars-s" style={{ boxShadow: starsSmall }}></div>
       <div className="star-layer stars-m" style={{ boxShadow: starsMedium }}></div>
       <div className="star-layer stars-l" style={{ boxShadow: starsLarge }}></div>

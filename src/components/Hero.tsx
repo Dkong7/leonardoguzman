@@ -46,8 +46,10 @@ const Hero = () => {
   const displayText = currentQuote ? (lang === 'EN' && currentQuote.texto_en ? currentQuote.texto_en : currentQuote.texto) : '';
 
   return (
-    <div className={`min-h-screen relative overflow-x-hidden pb-20 transition-colors duration-500 ${theme === 'purple' ? 'bg-[#050505]' : 'bg-[#e0e5ec]'}`}>
+    // FONDO TRANSPARENTE EN DARK MODE PARA VER EL ESPACIO
+    <div className={`min-h-screen relative overflow-x-hidden pb-20 transition-colors duration-500 ${theme === 'purple' ? 'bg-transparent' : 'bg-[#e0e5ec]'}`}>
       
+      {theme === 'purple' && <div className="fixed inset-0 z-[-2] bg-[#05000a]"></div>}
       {theme === 'purple' && <SpaceBackground />}
 
       <style>{`
@@ -72,32 +74,34 @@ const Hero = () => {
       `}</style>
 
       {/* HERO SECTION */}
-      <section className='relative pt-32 md:pt-40 pb-12 flex flex-col items-center justify-center px-4 md:px-8 lg:min-h-screen'>
-          <div className='w-full max-w-7xl grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center'>
+      <section className='relative pt-32 md:pt-40 pb-12 flex flex-col items-center justify-center px-4 md:px-8 lg:min-h-screen z-10'>
+          <div className='w-full max-w-[1600px] grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center'>
             
             {/* IZQUIERDA: LOGO, TÍTULO Y QUOTES */}
-            <div className='flex flex-col items-center lg:items-start text-center lg:text-left space-y-8 z-10'>
-                <div className="w-64 md:w-80 lg:w-[400px] transition-transform hover:scale-105">
+            <div className='flex flex-col items-center lg:items-start text-center lg:text-left space-y-6'>
+                {/* 1. LOGO AUMENTADO DE TAMAÑO */}
+                <div className="w-80 md:w-96 lg:w-[600px] transition-transform hover:scale-105">
                    <img src="/logo-nardo.svg" alt="LEONARDO GUZMAN" className={`w-full ${theme === 'purple' ? 'brightness-0 invert' : 'brightness-0 opacity-80'}`} />
                 </div>
                 
-                {/* TÍTULO ACTUALIZADO A MÚSICO - DOCENTE */}
-                <h2 className='text-2xl md:text-3xl lg:text-4xl font-black tracking-[0.3em] uppercase cosmic-text font-espacial'>
+                {/* 2. TÍTULO REDUCIDO DE TAMAÑO */}
+                <h2 className='text-lg md:text-xl lg:text-2xl font-black tracking-[0.4em] uppercase cosmic-text font-espacial lg:pl-2'>
                   {lang === 'EN' ? 'MUSICIAN – EDUCATOR' : 'MÚSICO – DOCENTE'}
                 </h2>
 
-                <div className='h-32 w-full max-w-xl relative'>
+                <div className='h-32 w-full max-w-xl relative mt-8'>
                    {quotes.length > 0 && currentQuote && (
                      <div className='absolute inset-0 flex items-center justify-center lg:justify-start transition-opacity duration-1000'>
-                       <div className={`p-4 rounded-2xl flex flex-row items-center gap-4 text-left w-full shadow-lg transition-colors duration-500
+                       {/* 3. CAJA DE QUOTES MUY TRANSPARENTE */}
+                       <div className={`p-4 rounded-2xl flex flex-row items-center gap-4 text-left w-full shadow-lg transition-all duration-500
                           ${theme === 'purple' 
-                              ? 'bg-white/5 backdrop-blur-md border border-white/10' 
+                              ? 'bg-black/10 backdrop-blur-sm border border-white/5' 
                               : 'bg-white/50 backdrop-blur-md border border-gray-200'
                           }
                        `}>
                          <img src={currentQuote.imagen_url} alt={currentQuote.autor} className='w-12 h-12 rounded-full border-2 object-cover shrink-0' style={{ borderColor: accentColor }} />
                          <div>
-                            <p className={`text-xs italic leading-relaxed ${theme === 'purple' ? 'text-gray-200' : 'text-gray-700'}`}>"{displayText}"</p>
+                            <p className={`text-xs italic leading-relaxed ${theme === 'purple' ? 'text-gray-300' : 'text-gray-700'}`}>"{displayText}"</p>
                             <p className='text-[9px] font-bold uppercase tracking-widest mt-1' style={{ color: accentColor }}>— {currentQuote.autor}</p>
                          </div>
                        </div>
@@ -107,17 +111,19 @@ const Hero = () => {
             </div>
 
             {/* DERECHA: REPRODUCTOR */}
-            <div className='flex justify-center w-full relative z-20'>
+            <div className='flex justify-center lg:justify-end w-full'>
                <MusicPlayer />
             </div>
 
           </div>
       </section>
       
-      <Aliados />
+      <div className="relative z-10">
+          <Aliados />
+      </div>
 
-      {/* SECCIÓN TIENDA OFICIAL (Limpiada de picos) */}
-      <section className="relative py-24 w-full border-t border-white/5">
+      {/* SECCIÓN TIENDA OFICIAL */}
+      <section className="relative py-24 w-full border-t border-white/5 z-10 bg-black/40 backdrop-blur-md">
         <div className="w-full relative z-20">
            <h3 className={`text-3xl md:text-5xl font-black uppercase tracking-widest text-center font-espacial mb-16
               ${theme === 'purple' ? 'text-white drop-shadow-[0_0_15px_rgba(217,70,239,0.5)]' : 'text-gray-900 drop-shadow-md'}

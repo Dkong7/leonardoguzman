@@ -7,11 +7,11 @@ import { ThemeContext } from '../context/ThemeContext';
 
 const LightningProgress = ({ progress, duration, onSeek, isDark }: { progress: number, duration: number, onSeek: (time: number) => void, isDark: boolean }) => {
     return (
-        <div className={`w-full h-1.5 rounded-full cursor-pointer relative group transition-colors ${isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-gray-300 hover:bg-gray-400 shadow-inner'}`} onClick={(e) => {
+        <div className={`w-full h-1.5 rounded-full cursor-pointer relative group transition-colors ${isDark ? 'bg-white/5 hover:bg-white/10' : 'bg-gray-300 hover:bg-gray-400 shadow-inner'}`} onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             onSeek(((e.clientX - rect.left) / rect.width) * duration);
         }}>
-            <div className={`absolute top-0 left-0 h-full rounded-full transition-all duration-150 ${isDark ? 'bg-purple-500 shadow-[0_0_10px_#a855f7]' : 'bg-purple-600'}`} style={{ width: `${(progress / (duration || 1)) * 100}%` }}>
+            <div className={`absolute top-0 left-0 h-full rounded-full transition-all duration-150 ${isDark ? 'bg-purple-500 shadow-[0_0_10px_#a855f7] opacity-80' : 'bg-purple-600'}`} style={{ width: `${(progress / (duration || 1)) * 100}%` }}>
                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg scale-0 group-hover:scale-100 transition-transform"></div>
             </div>
         </div>
@@ -83,13 +83,13 @@ const MusicPlayer = () => {
   if (tracks.length === 0) return null;
   const track = tracks[currentTrack];
 
-  // ESTILOS DINÁMICOS FASE 2
+  // --- ESTILOS DINÁMICOS (MUCHO MÁS TRANSPARENTES EN DARK MODE) ---
   const containerClass = isDark
-      ? 'bg-[#120b18]/80 backdrop-blur-[20px] border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)]'
+      ? 'bg-[#120b18]/30 backdrop-blur-[6px] border border-white/5 shadow-[0_20px_50px_rgba(0,0,0,0.3)]' // <-- Transparencia aumentada (/30) y blur reducido
       : 'bg-white/80 backdrop-blur-xl border border-white shadow-[0_15px_40px_rgba(0,0,0,0.1)]';
 
-  const textPrimary = isDark ? 'text-white' : 'text-gray-900';
-  const textSecondary = isDark ? 'text-gray-400' : 'text-gray-500';
+  const textPrimary = isDark ? 'text-white/90' : 'text-gray-900';
+  const textSecondary = isDark ? 'text-gray-400/80' : 'text-gray-500';
   const textHighlight = isDark ? 'text-purple-400' : 'text-purple-600';
 
   return (
@@ -98,10 +98,10 @@ const MusicPlayer = () => {
         <audio ref={audioRef} src={track.url_audio} onTimeUpdate={onTimeUpdate} onLoadedMetadata={onTimeUpdate} onEnded={() => handleTrackChange(currentTrack < tracks.length - 1 ? currentTrack + 1 : 0)} />
 
         {/* LADO IZQUIERDO: CONTROLES Y COVER */}
-        <div className={`w-full md:w-5/12 p-6 md:p-8 flex flex-col items-center justify-between border-b md:border-b-0 md:border-r ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
+        <div className={`w-full md:w-5/12 p-6 md:p-8 flex flex-col items-center justify-between border-b md:border-b-0 md:border-r ${isDark ? 'border-white/5' : 'border-gray-200'}`}>
             
             {/* CARÁTULA */}
-            <div className={`w-full aspect-square rounded-[2rem] overflow-hidden shadow-2xl relative mb-6 ${isDark ? 'border border-white/10' : 'border-4 border-white'}`}>
+            <div className={`w-full aspect-square rounded-[2rem] overflow-hidden shadow-2xl relative mb-6 ${isDark ? 'border border-white/5' : 'border-4 border-white'}`}>
                 <img 
                     src={track.url_cover} 
                     alt={track.titulo} 
@@ -133,7 +133,7 @@ const MusicPlayer = () => {
                 <button onClick={() => setIsPlaying(!isPlaying)} 
                     className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg active:scale-95 shrink-0
                         ${isDark 
-                            ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-[0_0_20px_rgba(147,51,234,0.4)]' 
+                            ? 'bg-purple-600/80 hover:bg-purple-500/90 text-white shadow-[0_0_20px_rgba(147,51,234,0.3)]' 
                             : 'bg-gray-900 hover:bg-black text-white shadow-xl'
                         }
                     `}
@@ -150,12 +150,12 @@ const MusicPlayer = () => {
         {/* LADO DERECHO: PLAYLIST FIJA */}
         <div className="w-full md:w-7/12 flex flex-col h-[400px] md:h-auto">
             
-            {/* HEADER PLAYLIST */}
-            <div className={`px-6 py-5 border-b flex justify-between items-center ${isDark ? 'border-white/5 bg-white/5' : 'border-gray-200 bg-gray-50'}`}>
+            {/* HEADER PLAYLIST (Fondo transparente en dark mode) */}
+            <div className={`px-6 py-5 flex justify-between items-center ${isDark ? 'border-b border-white/5 bg-transparent' : 'border-b border-gray-200 bg-gray-50'}`}>
                 <h3 className={`text-[10px] font-black uppercase tracking-[0.2em] font-espacial ${textSecondary}`}>
                     Discografía Selecta
                 </h3>
-                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-white/10 text-gray-300' : 'bg-gray-200 text-gray-600'}`}>
+                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${isDark ? 'bg-white/5 text-gray-400' : 'bg-gray-200 text-gray-600'}`}>
                     {tracks.length} Tracks
                 </span>
             </div>
@@ -166,7 +166,7 @@ const MusicPlayer = () => {
                     const isActive = currentTrack === index;
                     
                     const itemStyle = isActive
-                        ? (isDark ? 'bg-purple-600/20 border-purple-500/30' : 'bg-purple-50 border-purple-200')
+                        ? (isDark ? 'bg-purple-600/20 border-purple-500/20' : 'bg-purple-50 border-purple-200')
                         : (isDark ? 'hover:bg-white/5 border-transparent' : 'hover:bg-gray-50 border-transparent');
 
                     return (
@@ -184,7 +184,7 @@ const MusicPlayer = () => {
                                 )}
                             </div>
 
-                            <img src={t.url_cover} alt={t.titulo} className="w-10 h-10 rounded-lg object-cover shadow-sm shrink-0" />
+                            <img src={t.url_cover} alt={t.titulo} className={`w-10 h-10 rounded-lg object-cover shadow-sm shrink-0 ${isDark ? 'opacity-80' : ''}`} />
                             
                             <div className="flex-1 min-w-0">
                                 <p className={`text-sm font-bold truncate ${isActive ? (isDark ? 'text-white' : 'text-purple-900') : textPrimary}`}>{t.titulo}</p>
@@ -195,8 +195,8 @@ const MusicPlayer = () => {
                 })}
             </div>
 
-            {/* FOOTER: DSP LINKS */}
-            <div className={`px-6 py-4 border-t flex justify-center gap-6 ${isDark ? 'border-white/5 bg-black/20' : 'border-gray-200 bg-white'}`}>
+            {/* FOOTER: DSP LINKS (Fondo más transparente en dark mode) */}
+            <div className={`px-6 py-4 border-t flex justify-center gap-6 ${isDark ? 'border-white/5 bg-black/10' : 'border-gray-200 bg-white'}`}>
                 <a href="#" className={`text-xl transition-all hover:-translate-y-1 ${isDark ? 'text-gray-500 hover:text-[#1DB954]' : 'text-gray-400 hover:text-[#1DB954]'}`}><FontAwesomeIcon icon={faSpotify} /></a>
                 <a href="#" className={`text-xl transition-all hover:-translate-y-1 ${isDark ? 'text-gray-500 hover:text-white' : 'text-gray-400 hover:text-black'}`}><FontAwesomeIcon icon={faApple} /></a>
                 <a href="#" className={`text-xl transition-all hover:-translate-y-1 ${isDark ? 'text-gray-500 hover:text-[#FF0000]' : 'text-gray-400 hover:text-[#FF0000]'}`}><FontAwesomeIcon icon={faYoutube} /></a>
