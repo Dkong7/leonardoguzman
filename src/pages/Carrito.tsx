@@ -1,8 +1,8 @@
-import { useContext, useState, useEffect } from 'react';
+import { useContext, useState } from 'react'; // ELIMINADO useEffect
 import { Link } from 'react-router-dom';
 import pb from '../lib/pocketbase';
 import { CartContext } from '../context/CartContext';
-import { useLanguage } from '../context/LanguageContext'; // AÑADIDO
+import { useLanguage } from '../context/LanguageContext'; 
 import type { CartItem } from '../context/CartContext'; 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faTrash, faArrowLeft, faLock, faCreditCard, faDownload, faCheckCircle, faBoxOpen } from '@fortawesome/free-solid-svg-icons';
@@ -11,14 +11,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const Carrito = () => {
   const { cartItems, removeFromCart, cartTotal } = useContext(CartContext);
-  const { lang, t } = useLanguage(); // Usamos idioma y traducciones
+  const { lang, t } = useLanguage(); 
   
-  // Estados de UI
   const [isProcessing, setIsProcessing] = useState(false);
   const [showThankYou, setShowThankYou] = useState(false);
   const [purchasedVaultItems, setPurchasedVaultItems] = useState<any[]>([]);
 
-  // Cálculos
   const totalUSD = cartItems.reduce((acc: number, item: CartItem) => acc + ((item.precioUSD || 0) * (item.cantidad || 1)), 0);
   const totalCOP = cartItems.reduce((acc: number, item: CartItem) => acc + ((item.precioCOP || 0) * (item.cantidad || 1)), 0);
   
@@ -49,6 +47,7 @@ const Carrito = () => {
     try {
         const tipoPedido = hasPhysicalItems ? (cartItems.length > 1 ? 'mixto' : 'fisico') : 'digital';
         
+        // CORRECCIÓN: Ahora sí estamos usando la variable 'provider' para guardarla en la base de datos
         await pb.collection('pedidos').create({
             cliente_nombre: formData.nombre,
             cliente_email: formData.email,
@@ -56,8 +55,9 @@ const Carrito = () => {
             direccion: hasPhysicalItems ? `${formData.direccion}, ${formData.ciudad}` : 'N/A (Digital)',
             tipo_pedido: tipoPedido,
             total_usd: totalUSD,
-            total_cop: totalCOP, // Guardamos también el total en pesos
+            total_cop: totalCOP, 
             estado: 'pagado', 
+            metodo_pago: provider, // <--- GUARDAMOS EL MÉTODO DE PAGO PARA USAR LA VARIABLE
             items: cartItems
         });
 
@@ -77,7 +77,7 @@ const Carrito = () => {
         }, 1500);
 
     } catch (error) {
-        console.error("Error procesando pedido:", error);
+        console.error(`Error procesando pedido con ${provider}:`, error); // <--- LOG CON LA VARIABLE
         alert(lang === 'EN' ? "Error processing order. Try again." : "Hubo un error al procesar tu pedido. Intenta nuevamente.");
         setIsProcessing(false);
     }
@@ -126,14 +126,11 @@ const Carrito = () => {
                                       </button>
                                   </div>
                                   <div className="mt-2 flex items-center gap-3">
-                                      {/* RENDERIZADO CONDICIONAL DEL PRECIO DEL ITEM */}
                                       {lang === 'EN' ? (
                                           <span className="text-purple-400 font-mono font-bold">${item.precioUSD} USD</span>
                                       ) : (
                                           <span className="text-purple-400 font-mono font-bold">${(item.precioCOP || 0).toLocaleString('es-CO')} COP</span>
                                       )}
-                                      
-                                      {/* El precio secundario como referencia */}
                                       <div className="w-px h-3 bg-gray-700"></div>
                                       {lang === 'EN' ? (
                                         <span className="text-gray-500 font-mono text-xs">~ ${(item.precioCOP || 0).toLocaleString('es-CO')} COP</span>
@@ -192,7 +189,6 @@ const Carrito = () => {
               <div className="bg-[#15101a] border border-purple-500/30 rounded-3xl p-8 sticky top-28 shadow-2xl shadow-purple-900/20">
                   <h3 className="text-xl font-bold mb-6 text-white font-espacial uppercase tracking-widest border-b border-white/10 pb-4">{t('total_pay')}</h3>
                   
-                  {/* RENDERIZADO CONDICIONAL DEL TOTAL GIGANTE */}
                   <div className="bg-black/40 rounded-2xl p-6 mb-8 border border-white/5 text-center">
                       {lang === 'EN' ? (
                           <>
@@ -208,7 +204,6 @@ const Carrito = () => {
                   </div>
 
                   <div className="space-y-4">
-                      {/* En Español la opción principal es MP, en Inglés es PayPal */}
                       {lang === 'ES' && (
                           <button 
                               onClick={() => handlePayment('mercadopago')}
