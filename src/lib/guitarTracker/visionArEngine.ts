@@ -413,14 +413,32 @@ export class GuitarVisionArEngine {
 
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
-    // 1. Dibujar el stream de cámara o fondo de estudio simulado si la cámara está apagada
+    // 1. Dibujar el stream de cámara manteniendo proporción exacta (sin deformar en vertical ni horizontal)
     if (video && video.readyState >= 2) {
       ctx.save();
       if (this.mirrorVideo) {
         ctx.translate(canvasWidth, 0);
         ctx.scale(-1, 1);
       }
-      ctx.drawImage(video, 0, 0, canvasWidth, canvasHeight);
+      const vw = video.videoWidth || canvasWidth;
+      const vh = video.videoHeight || canvasHeight;
+      const videoAspect = vw / vh;
+      const canvasAspect = canvasWidth / canvasHeight;
+
+      let sx = 0;
+      let sy = 0;
+      let sw = vw;
+      let sh = vh;
+
+      if (videoAspect > canvasAspect) {
+        sw = vh * canvasAspect;
+        sx = (vw - sw) * 0.5;
+      } else {
+        sh = vw / canvasAspect;
+        sy = (vh - sh) * 0.5;
+      }
+
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvasWidth, canvasHeight);
       ctx.restore();
 
       // Oscurecer ligeramente el video para que los overlays AR neón resalten con nitidez

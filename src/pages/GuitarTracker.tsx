@@ -139,11 +139,42 @@ const GuitarTracker: React.FC = () => {
   // Cursor temporal (barra amarilla vertical en el diagrama 2D)
   const [cursorFretPosition, setCursorFretPosition] = useState<number>(4);
 
-  // Detectar si es pantalla móvil al inicio para activar vista cómoda de 12 trastes en el diagrama 2D
-  useEffect(() => {
-    if (typeof window !== 'undefined' && window.innerWidth < 768) {
-      setCompactMobileFrets(true);
+  // Dimensiones dinámicas del Canvas AR (Vertical en celular vertical, Horizontal en PC/ horizontal)
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768 && window.innerHeight > window.innerWidth) {
+      return { width: 540, height: 680 };
     }
+    return { width: 960, height: 540 };
+  });
+
+  // Detectar orientación de pantalla en celular y ajustar el canvas vertical u horizontalmente
+  useEffect(() => {
+    const updateLayoutForViewport = () => {
+      const isPortraitMobile = window.innerWidth < 768 && window.innerHeight > window.innerWidth;
+      setCompactMobileFrets(window.innerWidth < 768);
+
+      const vid = videoRef.current;
+      if (vid && vid.videoWidth > 0 && vid.videoHeight > 0) {
+        const aspect = vid.videoWidth / vid.videoHeight;
+        if (isPortraitMobile) {
+          const w = 540;
+          const h = Math.min(760, Math.max(580, Math.round(w / aspect)));
+          setCanvasSize({ width: w, height: h });
+        } else {
+          setCanvasSize({ width: 960, height: 540 });
+        }
+      } else {
+        setCanvasSize(isPortraitMobile ? { width: 540, height: 680 } : { width: 960, height: 540 });
+      }
+    };
+
+    updateLayoutForViewport();
+    window.addEventListener('resize', updateLayoutForViewport);
+    window.addEventListener('orientationchange', updateLayoutForViewport);
+    return () => {
+      window.removeEventListener('resize', updateLayoutForViewport);
+      window.removeEventListener('orientationchange', updateLayoutForViewport);
+    };
   }, []);
 
   // Inicializar motores
@@ -190,7 +221,7 @@ const GuitarTracker: React.FC = () => {
     return generateFretboardMatrix(tuningId, totalFrets, rootIndex, scaleId, boxFilter);
   }, [tuningId, totalFrets, rootIndex, scaleId, boxFilter]);
 
-  // Activar / Desactivar Cámara (Soporta cambio Frontal / Trasera en Celular)
+  // Activar / Desactivar Cámara (Respeta la orientación nativa vertical u horizontal del celular)
   const startCameraStream = async (facing: 'user' | 'environment', customDeviceId?: string) => {
     setCameraError(null);
     if (videoRef.current && videoRef.current.srcObject) {
@@ -201,9 +232,13 @@ const GuitarTracker: React.FC = () => {
 
     try {
       let stream: MediaStream;
+      const isPortrait = typeof window !== 'undefined' && window.innerHeight > window.innerWidth;
+
       try {
         const videoConstraints: MediaTrackConstraints = customDeviceId
-          ? { deviceId: { exact: customDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+          ? { deviceId: { exact: customDeviceId } }
+          : isPortrait
+          ? { facingMode: { ideal: facing } }
           : { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } };
 
         stream = await navigator.mediaDevices.getUserMedia({
@@ -211,7 +246,6 @@ const GuitarTracker: React.FC = () => {
           audio: false,
         });
       } catch {
-        // Fallback universal para móviles iOS/Android
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: facing },
           audio: false,
@@ -220,9 +254,21 @@ const GuitarTracker: React.FC = () => {
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => {
+          const vw = videoRef.current?.videoWidth || 0;
+          const vh = videoRef.current?.videoHeight || 0;
+          if (vw > 0 && vh > 0) {
+            if (vh > vw || (window.innerWidth < 768 && window.innerHeight > window.innerWidth)) {
+              const w = 540;
+              const h = Math.min(760, Math.max(580, Math.round(w * (vh / vw))));
+              setCanvasSize({ width: w, height: h });
+            } else {
+              setCanvasSize({ width: 960, height: Math.round(960 * (vh / vw)) || 540 });
+            }
+          }
+        };
         await videoRef.current.play();
         setCameraActive(true);
-        // Espejar automáticamente si es cámara frontal (selfie)
         const shouldMirror = facing === 'user' && !customDeviceId;
         setMirrorCamera(shouldMirror);
       }
@@ -748,12 +794,12 @@ const GuitarTracker: React.FC = () => {
                 </div>
               </div>
 
-              {/* CANVAS DE REALIDAD AUMENTADA (Soporta Touch en Celular y Mouse en PC) */}
-              <div className="relative flex-1 min-h-[240px] sm:min-h-[380px] flex items-center justify-center bg-black select-none">
+              {/* CANVAS DE REALIDAD AUMENTADA (Vertical en Celular Vertical, Horizontal en PC/Horizontal) */}
+              <div className="relative flex-1 flex items-center justify-center bg-black select-none overflow-hidden">
                 <canvas
                   ref={canvasRef}
-                  width={960}
-                  height={480}
+                  width={canvasSize.width}
+                  height={canvasSize.height}
                   onMouseDown={handleCanvasMouseDown}
                   onMouseMove={handleCanvasMouseMove}
                   onMouseUp={handleCanvasMouseUp}
@@ -761,7 +807,7 @@ const GuitarTracker: React.FC = () => {
                   onTouchStart={handleCanvasTouchStart}
                   onTouchMove={handleCanvasTouchMove}
                   onTouchEnd={handleCanvasTouchEnd}
-                  className={`w-full h-full object-contain touch-none ${
+                  className={`w-full h-auto block touch-none ${
                     draggingKeypoint
                       ? 'cursor-grabbing'
                       : hoveredKeypoint
