@@ -15,3 +15,14 @@ backend/node_modules/
 # Ignorar archivos de sistema y logs
 .DS_Store
 npm-debug.log*
+pb_data/
+pb_migrations/
+pb_migrations_old/
+pb_public/
+pocketbase
+pb.log
+backend/node_modules/
+backend/pb_data/
+backend/pocketbase.exe
+dist/
+
