@@ -1072,6 +1072,50 @@ const GuitarTracker: React.FC = () => {
                     </div>
                   )}
                 </div>
+
+                {/* Selectores de Hardware (Cámara e Interfaz de Audio) */}
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/80">
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-400 mb-1">
+                      Cámara:
+                    </label>
+                    <select
+                      value={selectedVideoId}
+                      onChange={(e) => {
+                        setSelectedVideoId(e.target.value);
+                        if (cameraActive) startCameraStream(cameraFacingMode, e.target.value || undefined);
+                      }}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-[11px] text-slate-200"
+                    >
+                      <option value="">Automática ({cameraFacingMode === 'environment' ? 'Trasera' : 'Frontal'})</option>
+                      {videoDevices.map((d, i) => (
+                        <option key={d.deviceId || i} value={d.deviceId}>
+                          {d.label || `Cámara ${i + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-mono text-slate-400 mb-1">
+                      Entrada Audio:
+                    </label>
+                    <select
+                      value={selectedAudioId}
+                      onChange={(e) => {
+                        setSelectedAudioId(e.target.value);
+                        if (micActive) toggleMicrophone(e.target.value);
+                      }}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5 text-[11px] text-slate-200"
+                    >
+                      <option value="">Micrófono Predeterminado</option>
+                      {audioDevices.map((d, i) => (
+                        <option key={d.deviceId || i} value={d.deviceId}>
+                          {d.label || `Audio ${i + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
             </div>
 
