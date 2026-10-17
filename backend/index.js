@@ -1,51 +1,54 @@
 const express = require('express');
 const cors = require('cors');
-const { MercadoPagoConfig, Preference } = require('mercadopago');
+require('dotenv').config();
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_tu_key_de_prueba');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// TU TOKEN
-const ACCESS_TOKEN = 'APP_USR-6875411157114734-010209-b36df770b45f0a72aa78e15405122b82-3102975181';
-
-const client = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
-
-app.post('/create_preference', async (req, res) => {
-  console.log("💰 Petición recibida...");
+app.post('/create-checkout-session', async (req, res) => {
+  console.log("💰 Petición recibida para Stripe...");
 
   try {
-    const { items } = req.body;
+    const { items, success_url, cancel_url } = req.body;
     
-    const preference = new Preference(client);
-    
-    // CONFIGURACIÓN A PRUEBA DE FALLOS
-    const result = await preference.create({
-      body: {
-        items: items,
-        payer: {
-            email: "test_user_1954@testuser.com" 
+    const line_items = items.map(item => {
+      // Monedas que no tienen decimales en Stripe
+      const zeroDecimalCurrencies = ['cop', 'jpy', 'clp', 'pyg'];
+      const currency = item.currency_id ? item.currency_id.toLowerCase() : 'cop';
+      const isZeroDecimal = zeroDecimalCurrencies.includes(currency);
+      
+      return {
+        price_data: {
+          currency: currency,
+          product_data: {
+            name: item.title || 'Producto',
+          },
+          unit_amount: isZeroDecimal ? Math.round(item.unit_price) : Math.round(item.unit_price * 100),
         },
-        // URLs de retorno (Usamos HTTPS genérico para pasar la validación estricta por ahora)
-        back_urls: {
-          success: "https://www.google.com",
-          failure: "https://www.google.com",
-          pending: "https://www.google.com"
-        },
-        // COMENTADO: Desactivamos auto_return porque choca con localhost a veces
-        // auto_return: "approved", 
-      }
+        quantity: item.quantity || 1,
+      };
     });
 
-    console.log("✅ LINK GENERADO:", result.init_point);
-    res.json({ id: result.id, init_point: result.init_point });
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: line_items,
+      mode: 'payment',
+      success_url: success_url || 'https://www.google.com',
+      cancel_url: cancel_url || 'https://www.google.com',
+      customer_email: req.body.payer?.email || undefined,
+    });
+
+    console.log("✅ SESSION GENERADA:", session.url);
+    res.json({ id: session.id, url: session.url });
 
   } catch (error) {
-    console.error("❌ ERROR MP:", error);
+    console.error("❌ ERROR STRIPE:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.listen(3000, () => {
-  console.log('🚀 BACKEND CORREGIDO EN PUERTO 3000');
+  console.log('🚀 BACKEND STRIPE CORREGIDO EN PUERTO 3000');
 });

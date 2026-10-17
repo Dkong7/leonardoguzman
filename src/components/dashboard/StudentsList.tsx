@@ -26,7 +26,7 @@ const StudentsList = () => {
 
     const loadUsers = async () => {
         try {
-            const records = await pb.collection('users').getFullList({ sort: '-created' });
+            const records = await pb.collection('estudiantes').getFullList({ sort: '-created' });
             setUsers(records);
         } catch (e) { console.error("Error loading users:", e); }
     };
@@ -73,33 +73,37 @@ const StudentsList = () => {
 
     const handleSave = async () => {
         try {
-            const dataToUpdate: any = {
-                username: formData.username,
-                email: formData.email,
-                xp: formData.xp,
-                pago_activo: formData.pago_activo
-            };
-            
-            if (formData.password) {
-                dataToUpdate.password = formData.password;
-                dataToUpdate.passwordConfirm = formData.password;
-            }
-
             if (editingUser) {
-                await pb.collection('users').update(editingUser.id, dataToUpdate);
+                // ...existing update logic...
+                let dataToUpdate: any = {
+                    username: formData.username,
+                    email: formData.email,
+                    xp: formData.xp,
+                    pago_activo: formData.pago_activo
+                };
+                if (formData.password) {
+                    dataToUpdate.password = formData.password;
+                    dataToUpdate.passwordConfirm = formData.password;
+                }
+                await pb.collection('estudiantes').update(editingUser.id, dataToUpdate);
             } else {
-                await pb.collection('users').create({ ...formData, emailVisibility: true });
+                await pb.collection('estudiantes').create({ 
+                    ...formData, 
+                    emailVisibility: true 
+                });
             }
             setShowModal(false);
             loadUsers();
-        } catch (e: any) {
-            alert("Error: " + e.message);
+        } catch (err: any) {
+            console.error(err);
+            const msg = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+            alert(`Error al guardar: Asegúrate de usar un email válido y que el usuario no exista.\n\nDetalles: ${msg}`);
         }
     };
 
     const deleteUser = async (id: string) => {
         if (confirm("ADVERTENCIA: ¿Borrar estudiante y todo su historial?")) {
-            await pb.collection('users').delete(id);
+            await pb.collection('estudiantes').delete(id);
             loadUsers();
         }
     };

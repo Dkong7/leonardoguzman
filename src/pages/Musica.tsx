@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useContext, useRef } from 'react';
+import { useEffect, useState, useContext, useRef } from 'react';
 import pb from '../lib/pocketbase';
 import SpaceBackground from '../components/SpaceBackground';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -352,6 +352,12 @@ const Musica = () => {
                           </div>
                       </div>
                   ))}
+
+                  {/* SPOTIFY EMBEDS FIJOS */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-4">
+                      <iframe style={{borderRadius: '12px'}} src="https://open.spotify.com/embed/track/0ZnSAlGUZUeGPNA9glmeey?utm_source=generator" width="100%" height="152" frameBorder="0" allowFullScreen allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
+                      <iframe style={{borderRadius: '12px'}} src="https://open.spotify.com/embed/track/6sC9Jv6ilxogs7YyYozb2a?utm_source=generator" width="100%" height="152" frameBorder="0" allowFullScreen allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
+                  </div>
               </div>
           </div>
 

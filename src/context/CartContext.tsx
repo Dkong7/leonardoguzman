@@ -57,6 +57,8 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
     localStorage.setItem('nardoCart', JSON.stringify(cartItems));
   }, [cartItems]);
 
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
   const addToCart = (product: CartItem) => {
     setCartItems((prev) => {
       const exists = prev.find((item) => item.id === product.id);
@@ -67,6 +69,10 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
       }
       return [...prev, { ...product, cantidad: product.cantidad || 1 }];
     });
+    
+    // Mostrar Toast
+    setToastMessage(`¡${product.nombre} agregado al carrito!`);
+    setTimeout(() => setToastMessage(null), 3000);
   };
 
   const removeFromCart = (id: string) => {
@@ -78,6 +84,29 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
   return (
     <CartContext.Provider value={{ cartItems, addToCart, removeFromCart, cartTotal }}>
       {children}
+      {/* SIMPLE TOAST NOTIFICATION */}
+      <div style={{
+          position: 'fixed', bottom: '20px', right: '20px', zIndex: 9999,
+          pointerEvents: 'none', display: 'flex', flexDirection: 'column', gap: '10px'
+      }}>
+          {toastMessage && (
+            <div style={{
+                background: '#10b981', color: 'white', padding: '12px 20px', 
+                borderRadius: '8px', fontWeight: 'bold', boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                animation: 'fadeinout 3s forwards'
+            }}>
+                ✅ {toastMessage}
+            </div>
+          )}
+          <style>{`
+            @keyframes fadeinout {
+              0% { opacity: 0; transform: translateY(20px); }
+              10% { opacity: 1; transform: translateY(0); }
+              90% { opacity: 1; transform: translateY(0); }
+              100% { opacity: 0; transform: translateY(-20px); }
+            }
+          `}</style>
+      </div>
     </CartContext.Provider>
   );
 };

@@ -1,7 +1,7 @@
-﻿import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { motion } from 'framer-motion';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faEnvelope, faGlobeAmericas, faFileContract, faDownload, faPaperPlane } from '@fortawesome/free-solid-svg-icons';
+import { faEnvelope, faGlobeAmericas, faPaperPlane } from '@fortawesome/free-solid-svg-icons';
 import SpaceBackground from '../components/SpaceBackground';
 import { ThemeContext } from '../context/ThemeContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -41,10 +41,7 @@ const Booking = () => {
     ? 'bg-black/40 border border-white/10 text-white focus:border-purple-500 focus:shadow-[0_0_15px_rgba(168,85,247,0.3)] placeholder-gray-600'
     : 'bg-[#e0e5ec] border-transparent text-gray-700 shadow-[inset_5px_5px_10px_#bebebe,inset_-5px_-5px_10px_#ffffff] focus:shadow-[inset_2px_2px_5px_#bebebe,inset_-2px_-2px_5px_#ffffff] placeholder-gray-400';
 
-  // Botones Pequeños (Download)
-  const buttonSmallStyle = isDark
-    ? 'bg-white/5 border border-white/10 hover:bg-white/10 hover:border-purple-500/50 text-white'
-    : 'bg-[#e0e5ec] shadow-[5px_5px_10px_#bebebe,-5px_-5px_10px_#ffffff] hover:shadow-[inset_3px_3px_6px_#bebebe,inset_-3px_-3px_6px_#ffffff] text-gray-700';
+  
 
   // Botón Submit (Siempre destacado)
   const submitBtnStyle = isDark
@@ -123,29 +120,6 @@ const Booking = () => {
                   </div>
                 </div>
               </div>
-            </div>
-
-            {/* DOWNLOADS */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <button className={`${buttonSmallStyle} rounded-2xl p-5 flex items-center justify-between group transition-all`}>
-                <div className="flex items-center gap-4">
-                  <FontAwesomeIcon icon={faDownload} className={`text-lg ${isDark ? 'text-purple-400' : 'text-purple-500'}`} />
-                  <div className="text-left">
-                    <span className={`block font-bold text-sm ${textPrimary}`}>{t('download_epk')}</span>
-                    <span className={`block text-[9px] uppercase tracking-wider ${textSecondary}`}>{t('press_kit')}</span>
-                  </div>
-                </div>
-              </button>
-
-              <button className={`${buttonSmallStyle} rounded-2xl p-5 flex items-center justify-between group transition-all`}>
-                <div className="flex items-center gap-4">
-                  <FontAwesomeIcon icon={faFileContract} className={`text-lg ${isDark ? 'text-purple-400' : 'text-purple-500'}`} />
-                  <div className="text-left">
-                    <span className={`block font-bold text-sm ${textPrimary}`}>{t('tech_rider')}</span>
-                    <span className={`block text-[9px] uppercase tracking-wider ${textSecondary}`}>{t('stage_plot')}</span>
-                  </div>
-                </div>
-              </button>
             </div>
           </motion.div>
 

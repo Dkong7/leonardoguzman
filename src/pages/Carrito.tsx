@@ -1,24 +1,30 @@
-import { useContext, useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useContext, useState, useEffect } from 'react'; 
+import { Link, useLocation } from 'react-router-dom';
 import pb from '../lib/pocketbase';
 import { CartContext } from '../context/CartContext';
-import { useLanguage } from '../context/LanguageContext'; // AÑADIDO
+import { useLanguage } from '../context/LanguageContext'; 
 import type { CartItem } from '../context/CartContext'; 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faTrash, faArrowLeft, faLock, faCreditCard, faDownload, faCheckCircle, faBoxOpen } from '@fortawesome/free-solid-svg-icons';
-import { faPaypal } from '@fortawesome/free-brands-svg-icons';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const Carrito = () => {
   const { cartItems, removeFromCart, cartTotal } = useContext(CartContext);
-  const { lang, t } = useLanguage(); // Usamos idioma y traducciones
+  const { lang, t } = useLanguage(); 
+  const location = useLocation();
   
-  // Estados de UI
   const [isProcessing, setIsProcessing] = useState(false);
   const [showThankYou, setShowThankYou] = useState(false);
-  const [purchasedVaultItems, setPurchasedVaultItems] = useState<any[]>([]);
+  const [purchasedVaultItems] = useState<any[]>([]);
 
-  // Cálculos
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('success') === 'true') {
+        setShowThankYou(true);
+        // Optionally, clear cart here if you had a clearCart function
+    }
+  }, [location.search]);
+
   const totalUSD = cartItems.reduce((acc: number, item: CartItem) => acc + ((item.precioUSD || 0) * (item.cantidad || 1)), 0);
   const totalCOP = cartItems.reduce((acc: number, item: CartItem) => acc + ((item.precioCOP || 0) * (item.cantidad || 1)), 0);
   
@@ -38,50 +44,66 @@ const Carrito = () => {
       return true;
   };
 
-  const handlePayment = async (provider: 'mercadopago' | 'paypal') => {
-    if (!validateForm()) {
-        alert(lang === 'EN' ? "Please fill all required billing/shipping data." : "Por favor, completa todos los datos requeridos para la facturación/envío.");
-        return;
-    }
+  const handlePayment = async (provider?: string) => {
+console.log(provider);
+      if (!validateForm()) {
+          alert(lang === 'EN' ? "Please fill all required billing/shipping data." : "Por favor, completa todos los datos requeridos para la facturación/envío.");
+          return;
+      }
 
-    setIsProcessing(true);
-    
-    try {
-        const tipoPedido = hasPhysicalItems ? (cartItems.length > 1 ? 'mixto' : 'fisico') : 'digital';
-        
-        await pb.collection('pedidos').create({
-            cliente_nombre: formData.nombre,
-            cliente_email: formData.email,
-            cliente_telefono: formData.telefono,
-            direccion: hasPhysicalItems ? `${formData.direccion}, ${formData.ciudad}` : 'N/A (Digital)',
-            tipo_pedido: tipoPedido,
-            total_usd: totalUSD,
-            total_cop: totalCOP, // Guardamos también el total en pesos
-            estado: 'pagado', 
-            items: cartItems
-        });
+      setIsProcessing(true);
+      
+      try {
+          const tipoPedido = hasPhysicalItems ? (cartItems.length > 1 ? 'mixto' : 'fisico') : 'digital';
+          
+          // MAP TO GET IDs for relations, fallback to string if JSON
+          const itemsPayload = cartItems;
 
-        const productIds = cartItems.map(item => `producto="${item.id}"`).join(' || ');
+          // GUARDAMOS EL PEDIDO EN LA BASE DE DATOS
+          const pedido = await pb.collection('pedidos').create({
+              cliente_nombre: formData.nombre,
+              cliente_email: formData.email,
+              cliente_telefono: formData.telefono,
+              direccion: hasPhysicalItems ? `${formData.direccion}, ${formData.ciudad}` : 'N/A (Digital)',
+              tipo_pedido: tipoPedido,
+              total_usd: totalUSD || 0,
+              total_cop: totalCOP || 0, 
+              // estado: 'pagado', // Removido para que entre como pendiente por defecto 
+              metodo_pago: 'mercadopago', 
+              items: itemsPayload
+          });
 
-        if (productIds) {
-            const vaultRecords = await pb.collection('boveda_digital').getFullList({
-                filter: productIds,
-                expand: 'producto'
-            });
-            setPurchasedVaultItems(vaultRecords);
-        }
+          // Llamar al hook de PocketBase para Mercado Pago
+          const response = await fetch(`${pb.baseUrl}/api/create-preference`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  payer_email: formData.email,
+                  external_reference: pedido.id,
+                  items: cartItems.map((item: any) => ({
+                      title: item.nombre || 'Producto',
+                      quantity: item.cantidad || 1,
+                      unit_price: Number(item.precioCOP) || 0
+                  }))
+              })
+          }).catch(err => { throw new Error('Fetch Error: ' + err.message); });
 
-        setTimeout(() => { 
-            setIsProcessing(false); 
-            setShowThankYou(true);
-        }, 1500);
+          const data = await response.json().catch(err => { throw new Error('JSON Parse Error: ' + err.message); });
+          
+          if (data.init_point) {
+              window.location.href = data.init_point;
+              return;
+          } else {
+              throw new Error(data.error || JSON.stringify(data.details) || 'Error al conectar con Mercado Pago');
+          }
 
-    } catch (error) {
-        console.error("Error procesando pedido:", error);
-        alert(lang === 'EN' ? "Error processing order. Try again." : "Hubo un error al procesar tu pedido. Intenta nuevamente.");
-        setIsProcessing(false);
-    }
-  };
+      } catch (error: any) {
+          console.error(`Error procesando pedido:`, error);
+          const errMsg = error?.response?.message || error?.message || error?.toString();
+          alert(`Error detallado: ${errMsg}. Por favor, avisa a soporte.`);
+          setIsProcessing(false);
+      }
+    };
 
   if (cartItems.length === 0 && !showThankYou) {
     return (
@@ -126,14 +148,11 @@ const Carrito = () => {
                                       </button>
                                   </div>
                                   <div className="mt-2 flex items-center gap-3">
-                                      {/* RENDERIZADO CONDICIONAL DEL PRECIO DEL ITEM */}
                                       {lang === 'EN' ? (
                                           <span className="text-purple-400 font-mono font-bold">${item.precioUSD} USD</span>
                                       ) : (
                                           <span className="text-purple-400 font-mono font-bold">${(item.precioCOP || 0).toLocaleString('es-CO')} COP</span>
                                       )}
-                                      
-                                      {/* El precio secundario como referencia */}
                                       <div className="w-px h-3 bg-gray-700"></div>
                                       {lang === 'EN' ? (
                                         <span className="text-gray-500 font-mono text-xs">~ ${(item.precioCOP || 0).toLocaleString('es-CO')} COP</span>
@@ -192,7 +211,6 @@ const Carrito = () => {
               <div className="bg-[#15101a] border border-purple-500/30 rounded-3xl p-8 sticky top-28 shadow-2xl shadow-purple-900/20">
                   <h3 className="text-xl font-bold mb-6 text-white font-espacial uppercase tracking-widest border-b border-white/10 pb-4">{t('total_pay')}</h3>
                   
-                  {/* RENDERIZADO CONDICIONAL DEL TOTAL GIGANTE */}
                   <div className="bg-black/40 rounded-2xl p-6 mb-8 border border-white/5 text-center">
                       {lang === 'EN' ? (
                           <>
@@ -208,34 +226,13 @@ const Carrito = () => {
                   </div>
 
                   <div className="space-y-4">
-                      {/* En Español la opción principal es MP, en Inglés es PayPal */}
-                      {lang === 'ES' && (
-                          <button 
-                              onClick={() => handlePayment('mercadopago')}
-                              disabled={isProcessing}
-                              className="w-full bg-[#009ee3] hover:bg-[#007eb5] text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-3 disabled:opacity-50 text-lg shadow-lg"
-                          >
-                              {isProcessing ? <span className="animate-pulse">{t('processing')}</span> : <><FontAwesomeIcon icon={faCreditCard} /> {t('pay_mercadopago')}</>}
-                          </button>
-                      )}
-
                       <button 
-                          onClick={() => handlePayment('paypal')}
+                          onClick={() => handlePayment('mercadopago')}
                           disabled={isProcessing}
-                          className="w-full bg-[#ffc439] hover:bg-[#f4bb2e] text-blue-900 font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-3 disabled:opacity-50 text-lg shadow-lg"
+                          className="w-full bg-[#009ee3] hover:bg-[#007ebe] text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-3 disabled:opacity-50 text-lg shadow-lg"
                       >
-                          {isProcessing ? <span className="animate-pulse">{t('processing')}</span> : <><FontAwesomeIcon icon={faPaypal} /> {t('pay_paypal')}</>}
+                          {isProcessing ? <span className="animate-pulse">{t('processing')}</span> : <><FontAwesomeIcon icon={faCreditCard} /> {lang === 'EN' ? 'Pay with Mercado Pago' : 'Pagar con Mercado Pago'}</>}
                       </button>
-                      
-                      {lang === 'EN' && (
-                          <button 
-                              onClick={() => handlePayment('mercadopago')}
-                              disabled={isProcessing}
-                              className="w-full bg-[#009ee3] hover:bg-[#007eb5] text-white font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-3 disabled:opacity-50 text-sm shadow-lg"
-                          >
-                              {isProcessing ? <span className="animate-pulse">{t('processing')}</span> : <><FontAwesomeIcon icon={faCreditCard} /> Pay with LatAm Methods (COP)</>}
-                          </button>
-                      )}
                   </div>
 
                   <div className="mt-8 pt-6 border-t border-white/5 text-center">

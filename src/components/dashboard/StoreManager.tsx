@@ -49,11 +49,11 @@ const StoreManager = () => {
         setEditingProduct(product);
         if (product) {
             setFormData({
-                nombre: product.nombre,
-                descripcion: product.descripcion,
-                precio_usd: product.precio_usd,
+                nombre: product.nombre || '',
+                descripcion: product.descripcion || '',
+                precio_usd: product.precio_usd || 0,
                 precio_cop: product.precio_cop || 0,
-                stock: product.stock,
+                stock: product.stock || 0,
                 categoria: product.tipo || 'merch',
                 imagen: null,
                 galeria: null
@@ -80,9 +80,9 @@ const StoreManager = () => {
             const data = new FormData();
             data.append('nombre', formData.nombre);
             data.append('descripcion', formData.descripcion);
-            data.append('precio_usd', formData.precio_usd.toString());
-            data.append('precio_cop', formData.precio_cop.toString());
-            data.append('stock', formData.stock.toString());
+            data.append('precio_usd', (formData.precio_usd || 0).toString());
+            data.append('precio_cop', (formData.precio_cop || 0).toString());
+            data.append('stock', (formData.stock || 0).toString());
             data.append('tipo', formData.categoria);
 
             if (formData.imagen) data.append('imagen', formData.imagen);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import pb from '../lib/pocketbase';
 import { motion } from 'framer-motion';
@@ -24,7 +24,7 @@ const LoginEstudiantes = () => {
     setError('');
 
     try {
-      await pb.collection('users').authWithPassword(email, password);
+      await pb.collection('estudiantes').authWithPassword(email, password);
       if (pb.authStore.isValid) {
           navigate('/aula'); 
       }
@@ -37,44 +37,43 @@ const LoginEstudiantes = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0510] flex items-center justify-center p-6 relative overflow-hidden font-sans">
+    <div className="min-h-screen relative z-10 bg-black flex items-center justify-center p-6 relative overflow-hidden font-sans">
       
       {/* --- ELEMENTOS DE FONDO (ORBES PURPURA) --- */}
-      <div className="absolute top-[-10%] left-[-10%] w-[60vw] h-[60vw] bg-purple-900/20 rounded-full blur-[120px] pointer-events-none"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[50vw] h-[50vw] bg-fuchsia-900/10 rounded-full blur-[120px] pointer-events-none"></div>
+      <div className="absolute top-[-10%] left-[-10%] w-[60vw] h-[60vw] bg-zinc-800/20 rounded-full blur-[120px] pointer-events-none"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[50vw] h-[50vw] bg-zinc-900/10 rounded-full blur-[120px] pointer-events-none"></div>
 
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-5xl bg-[#1a0b2e]/60 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_0_80px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col md:flex-row relative z-10 border border-purple-500/20"
+        className="w-full max-w-5xl bg-zinc-900/60 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_0_80px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col md:flex-row relative z-10 border border-zinc-800/20"
       >
         
         {/* LADO IZQUIERDO: ARTE Y LOGO */}
-        <div className="md:w-1/2 bg-[#120621] text-white p-12 flex flex-col justify-between relative overflow-hidden border-r border-purple-500/10">
+        <div className="md:w-1/2 bg-black text-white p-12 flex flex-col justify-between relative overflow-hidden border-r border-zinc-800/10">
             {/* Imagen de fondo sutil con overlay morado */}
             <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1511379938547-c1f69419868d?q=80&w=1000&auto=format&fit=crop')] bg-cover bg-center opacity-10 mix-blend-luminosity"></div>
-            <div className="absolute inset-0 bg-gradient-to-t from-[#1a0b2e] via-[#1a0b2e]/80 to-transparent"></div>
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent"></div>
             
             <div className="relative z-10">
-                <Link to="/clases" className="group flex items-center gap-2 text-purple-400 hover:text-white transition-all text-[10px] font-black tracking-[0.2em] uppercase mb-12">
+                <Link to="/clases" className="group flex items-center gap-2 text-zinc-400 hover:text-white transition-all text-[10px] font-black tracking-[0.2em] uppercase mb-12">
                     <FontAwesomeIcon icon={faArrowLeft} className="group-hover:-translate-x-1 transition-transform" /> {t('home')}
                 </Link>
                 
                 {/* INTEGRACIÓN LOGO GUITARROSIS */}
-                <img src="/guitarrosis-logo.svg" alt="Guitarrosis" className="h-16 mb-10 drop-shadow-[0_0_15px_rgba(168,85,247,0.4)]" />
+                <img src="/eim-logo.png" alt="EIM" className="h-16 mb-10 drop-shadow-[0_0_15px_rgba(168,85,247,0.4)] " />
                 
                 <h2 className="text-4xl md:text-5xl font-serif leading-[1.1] mb-6 text-transparent bg-clip-text bg-gradient-to-r from-white to-purple-300">
-                    Tu viaje musical continúa aquí.
-                </h2>
+                    Tu viaje musical continúa aquí.</h2>
                 <p className="text-purple-200/60 font-light text-lg leading-relaxed">
                     Accede a tu panel personalizado, descarga de materiales y seguimiento de objetivos.
                 </p>
             </div>
 
             <div className="relative z-10 mt-12">
-                <div className="flex items-center gap-4 text-[10px] font-bold text-purple-400/50 uppercase tracking-[0.3em]">
+                <div className="flex items-center gap-4 text-[10px] font-bold text-zinc-400/50 uppercase tracking-[0.3em]">
                     <div className="h-px w-8 bg-purple-500/30"></div>
-                    Guitarrosis Academy
+                    EIM - Escuela Itinerante de la Música
                 </div>
             </div>
         </div>
@@ -82,9 +81,9 @@ const LoginEstudiantes = () => {
         {/* LADO DERECHO: FORMULARIO NEUMÓRFICO OSCURO */}
         <div className="md:w-1/2 p-12 flex flex-col justify-center bg-transparent">
             <div className="mb-10 text-center md:text-left">
-                <img src="/guitarrosis-logo.svg" alt="Guitarrosis" className="h-8 mb-6 mx-auto md:mx-0 opacity-50 md:hidden" />
+                <img src="/eim-logo.png" alt="EIM" className="h-8 mb-6 mx-auto md:mx-0 opacity-50 md:hidden " />
                 <h3 className="text-3xl font-serif text-white mb-2 tracking-tight">Aula Virtual</h3>
-                <p className="text-purple-300/50 text-sm font-medium uppercase tracking-widest">Identificación de Alumno</p>
+                <p className="text-zinc-300/50 text-sm font-medium uppercase tracking-widest">Identificación de Alumno</p>
             </div>
 
             {error && (
@@ -99,15 +98,15 @@ const LoginEstudiantes = () => {
 
             <form onSubmit={handleLogin} className="space-y-6">
                 <div className="space-y-3">
-                    <label className="text-[10px] font-black text-purple-400 uppercase tracking-[0.2em] ml-1">Email</label>
+                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] ml-1">Email</label>
                     <div className="relative group">
-                        <FontAwesomeIcon icon={faEnvelope} className="absolute left-5 top-1/2 -translate-y-1/2 text-purple-500/50 group-focus-within:text-purple-400 transition-colors" />
+                        <FontAwesomeIcon icon={faEnvelope} className="absolute left-5 top-1/2 -translate-y-1/2 text-purple-500/50 group-focus-within:text-zinc-400 transition-colors" />
                         <input 
                             type="email" 
                             required
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
-                            className="w-full bg-[#0a0510]/50 border border-purple-500/20 text-white text-sm rounded-2xl py-4 pl-14 pr-4 focus:outline-none focus:border-purple-500/60 focus:ring-4 focus:ring-purple-500/5 transition-all placeholder-purple-900 shadow-inner"
+                            className="w-full bg-black/50 border border-zinc-800/20 text-white text-sm rounded-2xl py-4 pl-14 pr-4 focus:outline-none focus:border-zinc-800/60 focus:ring-4 focus:ring-purple-500/5 transition-all placeholder-purple-900 shadow-inner"
                             placeholder="correo@ejemplo.com"
                         />
                     </div>
@@ -115,17 +114,17 @@ const LoginEstudiantes = () => {
 
                 <div className="space-y-3">
                     <div className="flex justify-between items-center ml-1">
-                        <label className="text-[10px] font-black text-purple-400 uppercase tracking-[0.2em]">Password</label>
-                        <a href="#" className="text-[9px] font-bold text-purple-500 hover:text-purple-300 transition-colors uppercase tracking-widest">¿Olvidaste el acceso?</a>
+                        <label className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em]">Password</label>
+<a href="#" className="text-[9px] font-bold text-purple-500 hover:text-zinc-300 transition-colors uppercase tracking-widest">¿OLVIDASTE EL ACCESO?</a>
                     </div>
                     <div className="relative group">
-                        <FontAwesomeIcon icon={faLock} className="absolute left-5 top-1/2 -translate-y-1/2 text-purple-500/50 group-focus-within:text-purple-400 transition-colors" />
+                        <FontAwesomeIcon icon={faLock} className="absolute left-5 top-1/2 -translate-y-1/2 text-purple-500/50 group-focus-within:text-zinc-400 transition-colors" />
                         <input 
                             type="password" 
                             required
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            className="w-full bg-[#0a0510]/50 border border-purple-500/20 text-white text-sm rounded-2xl py-4 pl-14 pr-4 focus:outline-none focus:border-purple-500/60 focus:ring-4 focus:ring-purple-500/5 transition-all placeholder-purple-900 shadow-inner"
+                            className="w-full bg-black/50 border border-zinc-800/20 text-white text-sm rounded-2xl py-4 pl-14 pr-4 focus:outline-none focus:border-zinc-800/60 focus:ring-4 focus:ring-purple-500/5 transition-all placeholder-purple-900 shadow-inner"
                             placeholder="••••••••"
                         />
                     </div>
@@ -134,7 +133,7 @@ const LoginEstudiantes = () => {
                 <button 
                     type="submit" 
                     disabled={loading}
-                    className="w-full bg-gradient-to-r from-purple-700 to-purple-500 hover:from-purple-600 hover:to-purple-400 text-white font-black py-4 rounded-2xl shadow-[0_10px_20px_rgba(107,33,168,0.3)] transform transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-3 uppercase text-xs tracking-[0.2em] mt-4"
+                    className="w-full bg-gradient-to-r from-purple-700 to-purple-500 hover:from-zinc-700 hover:to-purple-400 text-white font-black py-4 rounded-2xl shadow-[0_10px_20px_rgba(107,33,168,0.3)] transform transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-3 uppercase text-xs tracking-[0.2em] mt-4"
                 >
                     {loading ? (
                         <FontAwesomeIcon icon={faCircleNotch} spin className="text-lg" />
@@ -145,8 +144,8 @@ const LoginEstudiantes = () => {
             </form>
 
             <div className="mt-10 text-center">
-                <p className="text-[10px] text-purple-400/40 uppercase tracking-[0.15em]">
-                    ¿Aún no eres estudiante? <Link to="/clases" className="text-purple-400 font-black hover:text-purple-200 hover:underline ml-1">Ver Programas</Link>
+                <p className="text-[10px] text-zinc-400/40 uppercase tracking-[0.15em]">
+¿AÚN NO ERES ESTUDIANTE? <Link to="/clases" className="text-zinc-400 font-black hover:text-purple-200 hover:underline ml-1">Ver Programas</Link>
                 </p>
             </div>
         </div>
@@ -156,3 +155,4 @@ const LoginEstudiantes = () => {
 };
 
 export default LoginEstudiantes;
+

@@ -40,4 +40,10 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background-color: var(--text-color);
+}html {
+  zoom: 75%;
+}
+.logo-morado {
+  /* Convierte negro a morado (aprox #9333ea / tailwind purple-600) */
+  filter: brightness(0) saturate(100%) invert(32%) sepia(87%) saturate(3015%) hue-rotate(253deg) brightness(91%) contrast(97%);
 }

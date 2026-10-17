@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import pb from '../../lib/pocketbase';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
-    faCrosshairs, faUsers, faExternalLinkAlt, 
+    faCrosshairs, faUsers, 
     faWallet, 
     faChevronLeft, faChevronRight, faCalendarAlt,
     faCheckCircle, faUserGraduate
@@ -27,7 +27,7 @@ const Overview = () => {
     const [allStudents, setAllStudents] = useState<any[]>([]); 
 
     const TRM = 4000; 
-    const LOOKER_URL = "https://lookerstudio.google.com/embed/reporting/8a85ba57-274c-4898-8282-4be74ec54848/page/SvJqF";
+    
 
     useEffect(() => {
         fetchRealData();
@@ -229,16 +229,52 @@ const Overview = () => {
                 <div className="p-5 bg-[#211c18] border-b border-[#443b34] flex justify-between items-center">
                     <div className="flex items-center gap-3">
                         <div className="w-2 h-2 bg-orange-600 rounded-full animate-pulse"></div>
-                        <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-[#e7e5e4]">Traffic Intelligence</h3>
+                        <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-[#e7e5e4]">Traffic Intelligence (Internal)</h3>
                     </div>
-                    <a href="https://lookerstudio.google.com/reporting/8a85ba57-274c-4898-8282-4be74ec54848" target="_blank" rel="noreferrer" className="text-[10px] text-orange-500 font-black hover:text-orange-400 transition-colors flex items-center gap-2">
-                        REPORTE COMPLETO <FontAwesomeIcon icon={faExternalLinkAlt} />
-                    </a>
                 </div>
-                <div className="flex-1 bg-white">
-                    <iframe width="100%" height="100%" src={LOOKER_URL} style={{ border: 0 }} allowFullScreen />
+                <div className="flex-1 bg-[#1f1a17] overflow-y-auto p-4">
+                    <InternalTraffic />
                 </div>
             </div>
+        </div>
+    );
+};
+
+const InternalTraffic = () => {
+    const [views, setViews] = useState<any[]>([]);
+
+    useEffect(() => {
+        pb.collection('pageviews').getList(1, 50, { sort: '-created' })
+            .then(res => setViews(res.items))
+            .catch(() => {});
+    }, []);
+
+    return (
+        <div className="space-y-3">
+            <h4 className="text-orange-500 text-xs font-bold uppercase mb-4 tracking-wider">Últimas 50 visitas</h4>
+            {views.map(v => {
+                let flag = '🌐';
+                if (v.country_code) {
+                    flag = v.country_code.toUpperCase().replace(/./g, (char: string) => String.fromCodePoint(char.charCodeAt(0) + 127397));
+                }
+                return (
+                    <div key={v.id} className="bg-[#26201b] p-3 rounded border-l-2 border-orange-500 flex justify-between gap-4">
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xl leading-none">{flag}</span>
+                                <span className="text-white font-bold text-xs truncate">{v.path}</span>
+                            </div>
+                            <p className="text-[#a8a29e] text-[10px] mt-1 break-all">Org: {v.referrer}</p>
+                            <p className="text-[#78716c] text-[9px] mt-1 font-mono uppercase tracking-widest">{v.city || 'Desconocido'}, {v.country || 'Desconocido'}</p>
+                        </div>
+                        <div className="text-right flex-shrink-0 flex flex-col justify-between items-end">
+                            <span className="text-[#78716c] text-[10px]">{new Date(v.created).toLocaleString()}</span>
+                            <span className="text-orange-500 text-[9px] font-black uppercase bg-[#1f1a17] px-2 py-1 rounded">{v.os || 'Desconocido'}</span>
+                        </div>
+                    </div>
+                );
+            })}
+            {views.length === 0 && <p className="text-[#78716c] text-xs">Aún no hay datos de tráfico...</p>}
         </div>
     );
 };

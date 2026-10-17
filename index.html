@@ -2,9 +2,16 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=purpleReal" />
+    <link id="dynamic-favicon" rel="icon" type="image/svg+xml" href="/favicon.svg?v=purpleReal" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>| Leonardo Guzmán |</title>
+    <title id="dynamic-title">| Leonardo Guzmán |</title>
+    <script>
+      const isEIM = window.location.port === '8094' || window.location.hostname.includes('escuelaitinerantedelamusica');
+      if (isEIM) {
+        document.getElementById('dynamic-favicon').href = '/eim-favicon.png';
+        document.getElementById('dynamic-title').innerText = 'EIM - Escuela Itinerante de la Música';
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,8 +1,8 @@
 ﻿import { useState, useEffect, useContext } from 'react';
 import pb from '../lib/pocketbase'; 
 import MusicPlayer from './MusicPlayer'; 
-import Aliados from './Aliados'; 
-import HomeStorePreview from './HomeStorePreview'; 
+ 
+ 
 import SpaceBackground from './SpaceBackground';
 import { useLanguage } from '../context/LanguageContext';
 import { ThemeContext } from '../context/ThemeContext';
@@ -14,7 +14,7 @@ interface Quote {
 const Hero = () => {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [qIndex, setQIndex] = useState(0);
-  const { lang, t } = useLanguage(); 
+  const { lang } = useLanguage(); 
   const { theme } = useContext(ThemeContext);
   const accentColor = theme === 'purple' ? '#9d4edd' : '#9ca3af';
 
@@ -78,22 +78,22 @@ const Hero = () => {
           <div className='w-full max-w-[1600px] grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center'>
             
             {/* IZQUIERDA: LOGO, TÍTULO Y QUOTES */}
-            <div className='flex flex-col items-center lg:items-start text-center lg:text-left space-y-6'>
+            <div className='flex flex-col items-center text-center space-y-6'>
                 {/* 1. LOGO AUMENTADO DE TAMAÑO */}
                 <div className="w-80 md:w-96 lg:w-[600px] transition-transform hover:scale-105">
                    <img src="/logo-nardo.svg" alt="LEONARDO GUZMAN" className={`w-full ${theme === 'purple' ? 'brightness-0 invert' : 'brightness-0 opacity-80'}`} />
                 </div>
                 
                 {/* 2. TÍTULO REDUCIDO DE TAMAÑO */}
-                <h2 className='text-lg md:text-xl lg:text-2xl font-black tracking-[0.4em] uppercase cosmic-text font-espacial lg:pl-2'>
-                  {lang === 'EN' ? 'MUSICIAN – EDUCATOR' : 'MÚSICO – DOCENTE'}
+                <h2 className='text-lg md:text-xl lg:text-2xl font-black tracking-[0.5em] uppercase cosmic-text font-espacial '>
+                  {lang === 'EN' ? 'MUSICIAN - EDUCATOR' : 'MÚSICO - DOCENTE'}
                 </h2>
 
                 <div className='h-32 w-full max-w-xl relative mt-8'>
                    {quotes.length > 0 && currentQuote && (
-                     <div className='absolute inset-0 flex items-center justify-center lg:justify-start transition-opacity duration-1000'>
+                     <div className='absolute inset-0 flex items-center justify-center transition-opacity duration-1000'>
                        {/* 3. CAJA DE QUOTES MUY TRANSPARENTE */}
-                       <div className={`p-4 rounded-2xl flex flex-row items-center gap-4 text-left w-full shadow-lg transition-all duration-500
+                       <div className={`p-4 rounded-2xl flex flex-col md:flex-row items-center gap-4 md:gap-6 justify-center text-center w-full shadow-lg transition-all duration-500
                           ${theme === 'purple' 
                               ? 'bg-black/10 backdrop-blur-sm border border-white/5' 
                               : 'bg-white/50 backdrop-blur-md border border-gray-200'
@@ -116,25 +116,6 @@ const Hero = () => {
             </div>
 
           </div>
-      </section>
-      
-      <div className="relative z-10">
-          <Aliados />
-      </div>
-
-      {/* SECCIÓN TIENDA OFICIAL */}
-      <section className="relative py-24 w-full border-t border-white/5 z-10 bg-black/40 backdrop-blur-md">
-        <div className="w-full relative z-20">
-           <h3 className={`text-3xl md:text-5xl font-black uppercase tracking-widest text-center font-espacial mb-16
-              ${theme === 'purple' ? 'text-white drop-shadow-[0_0_15px_rgba(217,70,239,0.5)]' : 'text-gray-900 drop-shadow-md'}
-           `}>
-              {t('official_store')}
-           </h3>
-
-           <div className="max-w-[1400px] mx-auto px-4 relative z-30">
-              <HomeStorePreview />
-           </div>
-        </div>
       </section>
     </div>
   );

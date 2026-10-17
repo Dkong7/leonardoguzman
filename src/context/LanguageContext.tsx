@@ -1,4 +1,4 @@
-﻿import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
 
 type Lang = 'ES' | 'EN';
 
@@ -18,7 +18,7 @@ const translations = {
     store: 'TIENDA', 
     bio: 'BIO', 
     school: 'DOJO', 
-    booking: 'BOOKING',
+    booking: 'CONTACTO',
 
     // --- FOOTER & GLOBALES ---
     copyright: '© 2026 Leonardo Guzman. Todos los derechos reservados.',
@@ -65,14 +65,14 @@ const translations = {
     summary: 'RESUMEN',
     subtotal: 'SUBTOTAL',
     total_pay: 'TOTAL A PAGAR',
-    pay_mercadopago: 'PAGAR CON MERCADOPAGO',
+    pay_stripe: 'PAGAR CON STRIPE',
     pay_paypal: 'PAGAR CON PAYPAL',
     secure_payment: 'PAGOS 100% ENCRIPTADOS',
     items: 'items',
     processing: 'PROCESANDO...',
 
     // --- BOOKING ---
-    booking_title: 'BOOKING',
+    booking_title: 'CONTACTO',
     management_press: 'MANAGEMENT & PRENSA',
     representation: 'REPRESENTACIÓN',
     representation_desc: 'Para contrataciones, festivales, clínicas y colaboraciones de marca, por favor contacte a nuestro equipo de management. Nos reservamos el derecho de admisión de propuestas.',
@@ -160,7 +160,7 @@ const translations = {
     store: 'STORE', 
     bio: 'BIO', 
     school: 'DOJO', 
-    booking: 'BOOKING',
+    booking: 'CONTACTO',
 
     // --- FOOTER & GLOBALES ---
     copyright: '© 2026 Leonardo Guzman. All Rights Reserved.',
@@ -207,14 +207,14 @@ const translations = {
     summary: 'SUMMARY',
     subtotal: 'SUBTOTAL',
     total_pay: 'TOTAL TO PAY',
-    pay_mercadopago: 'PAY WITH MERCADOPAGO',
+    pay_stripe: 'PAY WITH STRIPE',
     pay_paypal: 'PAY WITH PAYPAL',
     secure_payment: '100% ENCRYPTED PAYMENTS',
     items: 'items',
     processing: 'PROCESSING...',
 
     // --- BOOKING ---
-    booking_title: 'BOOKING',
+    booking_title: 'CONTACTO',
     management_press: 'MANAGEMENT & PRESS',
     representation: 'REPRESENTATION',
     representation_desc: 'For bookings, festivals, clinics, and brand collaborations, please contact our management team. We reserve the right to decline proposals.',

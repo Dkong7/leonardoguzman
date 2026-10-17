@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -30,15 +30,10 @@ const Footer = () => {
               {t('copyright')}
           </div>
           
-          {/* --- CRÉDITOS ACTUALIZADOS (4 Naranja Saturado) --- */}
-          <a 
-            href="https://www.thisiswillowtree.com" 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="text-gray-600 hover:text-white text-[9px] uppercase font-bold tracking-widest transition-colors flex items-center gap-1 group"
-          >
-              Desarrollado por <span className="text-orange-600 group-hover:text-orange-500 transition-colors">4</span> de Willow Tree Media
-          </a>
+          {/* --- CRÉDITOS ACTUALIZADOS --- */}
+          <div className="text-gray-600 text-[9px] uppercase font-bold tracking-widest flex items-center justify-center gap-1">
+              Desarrollado por <span className="text-orange-600">4</span>
+          </div>
 
         </div>
       </div>

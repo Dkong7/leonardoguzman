@@ -89,8 +89,8 @@ const MusicManager = () => {
             const data = new FormData();
             data.append('titulo', formData.titulo);
             data.append('tipo', formData.tipo);
-            data.append('anio', formData.anio.toString());
-            data.append('publico', formData.publico.toString());
+            data.append('anio', (formData.anio || 0).toString());
+            data.append('publico', String(!!formData.publico));
             data.append('links', JSON.stringify(formData.links));
             
             if (formData.cover) {
