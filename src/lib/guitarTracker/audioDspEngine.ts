@@ -178,26 +178,40 @@ export class GuitarAudioDspEngine {
   async startMicrophone(deviceId?: string): Promise<void> {
     this.stop();
 
-    const constraints: MediaStreamConstraints = {
-      audio: {
-        deviceId: deviceId ? { exact: deviceId } : undefined,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-        channelCount: 1,
-      },
-      video: false,
+    const audioConstraints: MediaTrackConstraints = {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
     };
+    if (deviceId) {
+      audioConstraints.deviceId = { ideal: deviceId };
+    }
 
-    this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-    this.audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({
+    try {
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: audioConstraints,
+        video: false,
+      });
+    } catch {
+      // Fallback para navegadores móviles estrictos
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false,
+      });
+    }
+
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    this.audioCtx = new AudioContextClass({
       latencyHint: 'interactive',
-      sampleRate: 48000,
     });
+
+    if (this.audioCtx.state === 'suspended') {
+      await this.audioCtx.resume();
+    }
 
     this.sourceNode = this.audioCtx.createMediaStreamSource(this.mediaStream);
     this.gainNode = this.audioCtx.createGain();
-    this.gainNode.gain.value = 1.6;
+    this.gainNode.gain.value = 1.8;
 
     this.analyser = this.audioCtx.createAnalyser();
     this.analyser.fftSize = 2048;
@@ -213,9 +227,9 @@ export class GuitarAudioDspEngine {
 
   private ensureSynthContext() {
     if (!this.audioCtx) {
-      this.audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      this.audioCtx = new AudioContextClass({
         latencyHint: 'interactive',
-        sampleRate: 48000,
       });
       this.analyser = this.audioCtx.createAnalyser();
       this.analyser.fftSize = 2048;

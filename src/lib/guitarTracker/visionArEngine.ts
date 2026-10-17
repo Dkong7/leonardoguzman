@@ -695,20 +695,26 @@ export class GuitarVisionArEngine {
 
       for (const [key, pt, label] of anchorEntries) {
         const isHovered = hoveredKeypoint === key;
+        // Halo táctil exterior para facilitar el agarre en pantallas móviles
         ctx.beginPath();
-        ctx.arc(pt.x, pt.y, isHovered ? 9 : 6.5, 0, Math.PI * 2);
+        ctx.arc(pt.x, pt.y, isHovered ? 18 : 14, 0, Math.PI * 2);
+        ctx.fillStyle = isHovered ? 'rgba(250, 204, 21, 0.25)' : 'rgba(16, 185, 129, 0.22)';
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, isHovered ? 10 : 7.5, 0, Math.PI * 2);
         ctx.fillStyle = isHovered ? '#facc15' : '#10b981';
         ctx.fill();
         ctx.lineWidth = 2;
         ctx.strokeStyle = '#ffffff';
         ctx.stroke();
 
-        ctx.fillStyle = 'rgba(9, 9, 11, 0.8)';
-        ctx.fillRect(pt.x - 38, pt.y - 24, 76, 14);
+        ctx.fillStyle = 'rgba(9, 9, 11, 0.85)';
+        ctx.fillRect(pt.x - 42, pt.y - 28, 84, 15);
         ctx.fillStyle = '#a7f3d0';
-        ctx.font = 'bold 8px monospace';
+        ctx.font = 'bold 9px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(label, pt.x, pt.y - 16);
+        ctx.fillText(label, pt.x, pt.y - 19);
       }
     }
 
