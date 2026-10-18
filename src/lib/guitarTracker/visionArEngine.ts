@@ -1,5 +1,8 @@
-// Motor de Visión por Computador, Homografía 2D/3D, Template Matching 2D (SAD 24x24),
-// Transformada de Hough Diagonal y Filtro de Kalman a 60 FPS
+// Motor de Visión por Computador AR — Arquitectura de "Cuerpo Rígido Pivotante"
+// 1. Máquina de Estados: 'idle' | 'calibrating_vertical' | 'tracking'
+// 2. Ancla Maestra Única (Centroide / Traste 12) con Template Matching SAD (24x24 px) + Filtro de Kalman 2D
+// 3. Calculador de Ángulo Rotacional en ventana de 60x60 px (Gradientes Direccionales Sobel + Acumulador de Hough Local)
+// 4. Proyección Sintética Rígida de los 4 esquineros (nutTop, bridgeTop, bridgeBottom, nutBottom)
 
 import {
   getNormalizedFretPosition,
@@ -33,17 +36,12 @@ export interface VisionTelemetry {
   homographyMatrix: number[]; // Matriz 3x3 aplanada (9 elementos)
 }
 
-const KEYPOINT_KEYS: (keyof NeckKeypoints)[] = [
-  'nutTop',
-  'bridgeTop',
-  'bridgeBottom',
-  'nutBottom',
-];
-
 const PATCH_SIZE = 24;
-const HALF_PATCH = 12; // 24x24 píxeles
-const SEARCH_RADIUS = 9; // Ventana de búsqueda 2D [-9..+9] en X e Y
-const REQUIRED_CALIBRATION_FRAMES = 45; // ~1.5 segundos continuos a 30-60 FPS
+const HALF_PATCH = 12; // Parche 24x24 px para el Ancla Maestra
+const SEARCH_RADIUS = 12; // Radio de búsqueda 2D [-12..+12] alrededor del Ancla Maestra
+const ANGLE_WINDOW_SIZE = 60;
+const HALF_ANGLE_WIN = 30; // Ventana 60x60 px alrededor del Ancla Maestra para cálculo de rotación
+const REQUIRED_CALIBRATION_FRAMES = 45; // ~1.5 segundos continuos en calibración vertical
 
 /**
  * Solicita estrictamente la cámara frontal a 1280x720 por defecto
@@ -60,12 +58,11 @@ export async function requestFrontCameraStream(): Promise<MediaStream> {
 }
 
 /**
- * Filtro de Kalman 2D con estado [x, y, vx, vy] para suavizar cada punto clave
- * y predecir posición en X e Y entre frames evitando vibraciones (jitter).
+ * Filtro de Kalman 2D con estado [x, y, vx, vy] para suavizar la traslación del Ancla Maestra
  */
 class KalmanPoint2D {
-  private x = 0;
-  private y = 0;
+  private x = 0.5;
+  private y = 0.5;
   private vx = 0;
   private vy = 0;
   private initialized = false;
@@ -92,16 +89,12 @@ class KalmanPoint2D {
     }
 
     const safeDt = Math.max(0.005, Math.min(0.1, dt));
-
-    // Predicción de estado en X e Y
     const predX = this.x + this.vx * safeDt;
     const predY = this.y + this.vy * safeDt;
 
-    // Residuo (innovación)
     const rx = measured.x - predX;
     const ry = measured.y - predY;
 
-    // Corrección Alpha-Beta Kalman
     this.x = predX + this.alpha * rx;
     this.y = predY + this.alpha * ry;
     this.vx = (this.vx + (this.beta / safeDt) * rx * 0.18) * 0.84;
@@ -112,6 +105,52 @@ class KalmanPoint2D {
 
   public getCurrent(): Point2D {
     return { x: this.x, y: this.y };
+  }
+}
+
+/**
+ * Filtro de Kalman Angular 1D (con desenvolvimiento circular de fase) para suavizar la rotación del mástil
+ */
+class KalmanAngle1D {
+  private angleRad = 0;
+  private omega = 0;
+  private initialized = false;
+  private alpha: number;
+  private beta: number;
+
+  constructor(alpha = 0.35, beta = 0.08) {
+    this.alpha = alpha;
+    this.beta = beta;
+  }
+
+  public reset(angleRad: number) {
+    this.angleRad = angleRad;
+    this.omega = 0;
+    this.initialized = true;
+  }
+
+  public update(measuredRad: number, dt: number = 1 / 60): number {
+    if (!this.initialized) {
+      this.reset(measuredRad);
+      return this.angleRad;
+    }
+
+    const safeDt = Math.max(0.005, Math.min(0.1, dt));
+    const predAngle = this.angleRad + this.omega * safeDt;
+
+    // Diferencia angular más corta en [-PI, PI]
+    let diff = measuredRad - predAngle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+
+    this.angleRad = predAngle + this.alpha * diff;
+    this.omega = (this.omega + (this.beta / safeDt) * diff * 0.15) * 0.82;
+
+    return this.angleRad;
+  }
+
+  public getCurrent(): number {
+    return this.angleRad;
   }
 }
 
@@ -165,37 +204,24 @@ export function projectHomographyPoint(H: number[], u: number, v: number): Point
 }
 
 export class GuitarVisionArEngine {
-  private kalmanFilters: Record<keyof NeckKeypoints, KalmanPoint2D> = {
-    nutTop: new KalmanPoint2D(0.42, 0.12),
-    bridgeTop: new KalmanPoint2D(0.42, 0.12),
-    bridgeBottom: new KalmanPoint2D(0.42, 0.12),
-    nutBottom: new KalmanPoint2D(0.42, 0.12),
-  };
+  // --- Modelo de Cuerpo Rígido Pivotante (1 Ancla Maestra + Ángulo + Geometría Fija) ---
+  private masterAnchor: Point2D = { x: 0.50, y: 0.48 };
+  private neckAngleRad: number = -0.18; // ~ -10.3° por defecto
 
-  private offscreenCanvas: HTMLCanvasElement;
-  private offscreenCtx: CanvasRenderingContext2D | null;
-  // Resolución de procesamiento optimizada para parches 24x24 a 60 FPS sin bloquear el hilo principal
-  private procWidth = 320;
-  private procHeight = 180;
-  private grayBuffer: Uint8Array;
-  private hasValidGrayFrame = false;
+  // Dimensiones rígidas establecidas en la calibración (en unidades normalizadas isotrópicas)
+  private rigidHalfLength = 0.35;       // Mitad de la longitud del mástil desde el Ancla Maestra
+  private rigidNutHalfWidth = 0.052;    // Mitad del grosor en la cejuela
+  private rigidBridgeHalfWidth = 0.064; // Mitad del grosor en el traste 24
 
-  // Parches de referencia ("templates") de 24x24 píxeles (576 bytes cada uno) para SAD Template Matching
-  private templates: Record<keyof NeckKeypoints, Uint8Array> = {
-    nutTop: new Uint8Array(PATCH_SIZE * PATCH_SIZE),
-    bridgeTop: new Uint8Array(PATCH_SIZE * PATCH_SIZE),
-    bridgeBottom: new Uint8Array(PATCH_SIZE * PATCH_SIZE),
-    nutBottom: new Uint8Array(PATCH_SIZE * PATCH_SIZE),
-  };
+  // Filtros de Kalman para el Ancla Maestra (X, Y) y para el Ángulo de rotación (Theta)
+  private masterKalman = new KalmanPoint2D(0.45, 0.14);
+  private angleKalman = new KalmanAngle1D(0.36, 0.09);
 
-  private templateInitialized: Record<keyof NeckKeypoints, boolean> = {
-    nutTop: false,
-    bridgeTop: false,
-    bridgeBottom: false,
-    nutBottom: false,
-  };
+  // Parche único de 24x24 píxeles (576 bytes) para el Ancla Maestra (Centro / Traste 12)
+  private masterTemplate = new Uint8Array(PATCH_SIZE * PATCH_SIZE);
+  private masterTemplateInitialized = false;
 
-  // Puntos ancla normalizados en coordenadas de canvas (0..1)
+  // Cuadrilátero rígido derivado sintéticamente en cada frame
   private anchorQuad: NeckKeypoints = {
     nutTop: { x: 0.14, y: 0.48 },
     bridgeTop: { x: 0.84, y: 0.34 },
@@ -203,13 +229,19 @@ export class GuitarVisionArEngine {
     nutBottom: { x: 0.16, y: 0.61 },
   };
 
-  private lastValidQuad: NeckKeypoints = { ...this.anchorQuad };
-  private trackingConfidence = 0.94;
+  private offscreenCanvas: HTMLCanvasElement;
+  private offscreenCtx: CanvasRenderingContext2D | null;
+  private procWidth = 320;
+  private procHeight = 180;
+  private grayBuffer: Uint8Array;
+  private hasValidGrayFrame = false;
+
+  private trackingConfidence = 0.95;
   private isFallbackFrozen = false;
   private lastFrameTime = performance.now();
   private smoothedFps = 60;
 
-  // 1. Estado de la máquina de estados del motor de visión ('idle' por defecto)
+  // Máquina de estados: 'idle' | 'calibrating_vertical' | 'tracking'
   public state: EngineState = 'idle';
   private calibrationHoldFrames = 0;
   private calibCorridor = {
@@ -221,7 +253,6 @@ export class GuitarVisionArEngine {
 
   public trackingMode: 'hybrid-auto' | 'kalman-locked' | 'manual-calibration' = 'hybrid-auto';
   public showVisionDebug = true;
-  // 1. MODO ESPEJO ACTIVADO POR DEFECTO PARA CÁMARA FRONTAL
   public mirrorVideo = true;
   public invertStringsVertical = false;
 
@@ -231,28 +262,56 @@ export class GuitarVisionArEngine {
     this.offscreenCanvas.height = this.procHeight;
     this.offscreenCtx = this.offscreenCanvas.getContext('2d', { willReadFrequently: true });
     this.grayBuffer = new Uint8Array(this.procWidth * this.procHeight);
-    this.resetKalmanToCurrent();
+
+    this.masterKalman.reset(this.masterAnchor);
+    this.angleKalman.reset(this.neckAngleRad);
+    this.anchorQuad = this.computeSyntheticRigidQuad(this.masterAnchor, this.neckAngleRad);
   }
 
   /**
-   * 2. Inicia la fase de calibración inicial vertical ('calibrating_vertical')
-   * limpiando los parches previos y reiniciando el contador de 45 frames continuos.
+   * 4. Calcula los 4 puntos esquineros (nutTop, bridgeTop, bridgeBottom, nutBottom)
+   * de forma SINTÉTICA Y RÍGIDA proyectando vectores desde el Ancla Maestra hacia los extremos
+   * usando el ángulo actual y la longitud/grosor del cuerpo rígido.
+   * El cuadrilátero jamás se deforma ni se cruza: solo se traslada y rota.
+   */
+  private computeSyntheticRigidQuad(center: Point2D, angleRad: number): NeckKeypoints {
+    const ux = Math.cos(angleRad);
+    const uy = Math.sin(angleRad);
+    // Vector normal perpendicular al eje del mástil
+    const nx = -uy;
+    const ny = ux;
+
+    // Compensación suave de relación de aspecto del buffer para mantener rigidez visual al rotar 90°
+    const aspectY = this.procWidth / Math.max(1, this.procHeight); // ~1.77
+    const scaleY = Math.min(1.45, Math.max(1.0, aspectY * 0.78));
+
+    const projectRigidCorner = (alongOffset: number, perpOffset: number): Point2D => {
+      const dx = alongOffset * ux + perpOffset * nx;
+      const dy = (alongOffset * uy + perpOffset * ny) * scaleY;
+      return {
+        x: center.x + dx,
+        y: center.y + dy,
+      };
+    };
+
+    return {
+      nutTop: projectRigidCorner(-this.rigidHalfLength, -this.rigidNutHalfWidth),
+      bridgeTop: projectRigidCorner(this.rigidHalfLength, -this.rigidBridgeHalfWidth),
+      bridgeBottom: projectRigidCorner(this.rigidHalfLength, this.rigidBridgeHalfWidth),
+      nutBottom: projectRigidCorner(-this.rigidHalfLength, this.rigidNutHalfWidth),
+    };
+  }
+
+  /**
+   * Inicia la fase de calibración inicial vertical ('calibrating_vertical')
    */
   public startCalibration() {
     this.state = 'calibrating_vertical';
     this.calibrationHoldFrames = 0;
     this.isFallbackFrozen = false;
     this.trackingConfidence = 0.5;
-    for (const key of KEYPOINT_KEYS) {
-      this.templates[key].fill(0);
-      this.templateInitialized[key] = false;
-    }
-  }
-
-  private resetKalmanToCurrent() {
-    for (const key of KEYPOINT_KEYS) {
-      this.kalmanFilters[key].reset(this.anchorQuad[key]);
-    }
+    this.masterTemplate.fill(0);
+    this.masterTemplateInitialized = false;
   }
 
   public getNormalizedKeypoints(): NeckKeypoints {
@@ -265,22 +324,41 @@ export class GuitarVisionArEngine {
   }
 
   /**
-   * 3. Si el usuario arrastra un pin verde, actualiza la coordenada y captura inmediatamente
-   * el nuevo parche de referencia (template 24x24) debajo del dedo para continuar el tracking desde ahí.
+   * Si el usuario arrastra un pin en pantalla para ajuste manual (fine-tuning),
+   * no deforma el punto de manera aislada: traslada o rota el Cuerpo Rígido entero
+   * y actualiza el parche 24x24 del Ancla Maestra.
    */
   public setNormalizedKeypoint(key: keyof NeckKeypoints, pt: Point2D) {
     const clamped: Point2D = {
-      x: Math.max(0.04, Math.min(0.96, pt.x)),
-      y: Math.max(0.04, Math.min(0.96, pt.y)),
+      x: Math.max(0.05, Math.min(0.95, pt.x)),
+      y: Math.max(0.05, Math.min(0.95, pt.y)),
     };
-    this.anchorQuad[key] = clamped;
-    this.lastValidQuad = this.getNormalizedKeypoints();
-    this.kalmanFilters[key].reset(clamped);
+
+    const dx = clamped.x - this.masterAnchor.x;
+    const dy = clamped.y - this.masterAnchor.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist > 0.08) {
+      // Ajustar rotación y semi-longitud del cuerpo rígido hacia donde el usuario posicionó el extremo
+      if (key === 'bridgeTop' || key === 'bridgeBottom') {
+        this.neckAngleRad = Math.atan2(dy, dx);
+      } else {
+        this.neckAngleRad = Math.atan2(-dy, -dx);
+      }
+      this.rigidHalfLength = Math.max(0.18, Math.min(0.44, dist));
+    } else {
+      // Si arrastró cerca del centro, trasladar el Ancla Maestra
+      this.masterAnchor = { ...clamped };
+    }
+
+    this.masterKalman.reset(this.masterAnchor);
+    this.angleKalman.reset(this.neckAngleRad);
+    this.anchorQuad = this.computeSyntheticRigidQuad(this.masterAnchor, this.neckAngleRad);
 
     if (this.hasValidGrayFrame) {
-      this.capturePatchTemplate(key, clamped);
+      this.captureMasterPatchTemplate(this.masterAnchor);
     } else {
-      this.templateInitialized[key] = false;
+      this.masterTemplateInitialized = false;
     }
 
     this.state = 'tracking';
@@ -289,29 +367,29 @@ export class GuitarVisionArEngine {
   }
 
   public resetDefaultNeckPose() {
-    this.anchorQuad = {
-      nutTop: { x: 0.14, y: 0.48 },
-      bridgeTop: { x: 0.84, y: 0.34 },
-      bridgeBottom: { x: 0.86, y: 0.50 },
-      nutBottom: { x: 0.16, y: 0.61 },
-    };
-    this.lastValidQuad = this.getNormalizedKeypoints();
-    this.resetKalmanToCurrent();
-    for (const key of KEYPOINT_KEYS) {
-      this.templates[key].fill(0);
-      this.templateInitialized[key] = false;
-      if (this.hasValidGrayFrame) {
-        this.capturePatchTemplate(key, this.anchorQuad[key]);
-      }
+    this.masterAnchor = { x: 0.50, y: 0.47 };
+    this.neckAngleRad = -0.18;
+    this.rigidHalfLength = 0.35;
+    this.rigidNutHalfWidth = 0.052;
+    this.rigidBridgeHalfWidth = 0.064;
+
+    this.masterKalman.reset(this.masterAnchor);
+    this.angleKalman.reset(this.neckAngleRad);
+    this.anchorQuad = this.computeSyntheticRigidQuad(this.masterAnchor, this.neckAngleRad);
+
+    this.masterTemplate.fill(0);
+    this.masterTemplateInitialized = false;
+    if (this.hasValidGrayFrame) {
+      this.captureMasterPatchTemplate(this.masterAnchor);
     }
+
     this.trackingConfidence = 0.96;
     this.isFallbackFrozen = false;
   }
 
   /**
    * Captura el frame actual de video en el buffer de luminancia (escala de grises 1 byte/píxel),
-   * respetando el modo espejo y la relación de aspecto para que las coordenadas normalizadas
-   * coincidan exactamente con las del canvas principal.
+   * respetando el modo espejo y la relación de aspecto.
    */
   private captureGrayscaleFrame(video: HTMLVideoElement): boolean {
     if (!this.offscreenCtx || video.readyState < 2) return false;
@@ -341,7 +419,6 @@ export class GuitarVisionArEngine {
     const rgba = this.offscreenCtx.getImageData(0, 0, this.procWidth, this.procHeight).data;
     const totalPixels = this.procWidth * this.procHeight;
     for (let i = 0, p = 0; i < totalPixels; i++, p += 4) {
-      // Luminancia rápida en entero: (77*R + 150*G + 29*B) >> 8
       this.grayBuffer[i] = (77 * rgba[p] + 150 * rgba[p + 1] + 29 * rgba[p + 2]) >> 8;
     }
 
@@ -350,330 +427,42 @@ export class GuitarVisionArEngine {
   }
 
   /**
-   * Extrae el parche de referencia de 24x24 píxeles alrededor de una coordenada normalizada (x, y)
+   * Captura el parche de referencia de 24x24 píxeles únicamente para el Ancla Maestra
    */
-  private capturePatchTemplate(key: keyof NeckKeypoints, normPt: Point2D) {
-    const cx = Math.round(normPt.x * this.procWidth);
-    const cy = Math.round(normPt.y * this.procHeight);
+  private captureMasterPatchTemplate(normCenter: Point2D) {
+    const cx = Math.round(normCenter.x * this.procWidth);
+    const cy = Math.round(normCenter.y * this.procHeight);
 
     const clampedCx = Math.max(HALF_PATCH + 1, Math.min(this.procWidth - HALF_PATCH - 2, cx));
     const clampedCy = Math.max(HALF_PATCH + 1, Math.min(this.procHeight - HALF_PATCH - 2, cy));
 
-    const patch = this.templates[key];
     let idx = 0;
     for (let py = -HALF_PATCH; py < HALF_PATCH; py++) {
       const rowOffset = (clampedCy + py) * this.procWidth;
       for (let px = -HALF_PATCH; px < HALF_PATCH; px++) {
-        patch[idx++] = this.grayBuffer[rowOffset + clampedCx + px];
+        this.masterTemplate[idx++] = this.grayBuffer[rowOffset + clampedCx + px];
       }
     }
-    this.templateInitialized[key] = true;
+    this.masterTemplateInitialized = true;
   }
 
   /**
-   * 2. AUTO-AJUSTE DINÁMICO DEL MÁSTIL (ÁNGULOS REALES):
-   * Detecta bordes (Sobel direccional) y ejecuta una Transformada de Hough lineal + regresión
-   * sobre el corredor dominante para encontrar el eje diagonal real del mástil (ej. -40° a +40°),
-   * su grosor transversal y proyectar automáticamente los 4 keypoints (nutTop, bridgeTop, bridgeBottom, nutBottom).
+   * 2. Trackea únicamente el Ancla Maestra (centroide / traste 12) usando Template Matching SAD (24x24 px)
    */
-  public autoScanNeckFromVideo(video: HTMLVideoElement): boolean {
-    if (!this.captureGrayscaleFrame(video)) return false;
-
-    const w = this.procWidth;
-    const h = this.procHeight;
-    const gray = this.grayBuffer;
-
-    // 1. Mapa de magnitud de bordes y orientación para detectar líneas largas del mástil + trastes
-    const edgeMag = new Float32Array(w * h);
-    const edgeGx = new Float32Array(w * h);
-    const edgeGy = new Float32Array(w * h);
-
-    const marginX = Math.floor(w * 0.08);
-    const marginY = Math.floor(h * 0.08);
-
-    for (let y = marginY; y < h - marginY; y++) {
-      const row = y * w;
-      for (let x = marginX; x < w - marginX; x++) {
-        const idx = row + x;
-        // Operador Sobel 3x3
-        const gx =
-          -gray[idx - w - 1] + gray[idx - w + 1] -
-          2 * gray[idx - 1] + 2 * gray[idx + 1] -
-          gray[idx + w - 1] + gray[idx + w + 1];
-
-        const gy =
-          -gray[idx - w - 1] - 2 * gray[idx - w] - gray[idx - w + 1] +
-          gray[idx + w - 1] + 2 * gray[idx + w] + gray[idx + w + 1];
-
-        const mag = Math.hypot(gx, gy);
-        if (mag > 45) {
-          edgeMag[idx] = mag;
-          edgeGx[idx] = gx;
-          edgeGy[idx] = gy;
-        }
-      }
-    }
-
-    // 2. Transformada de Hough en el rango de ángulos reales de ejecución de guitarra [-42°, +42°]
-    // El ángulo theta representa la inclinación del eje longitudinal del mástil respecto a la horizontal.
-    const minAngleDeg = -42;
-    const maxAngleDeg = 42;
-    const angleStepDeg = 1.5;
-    const numAngles = Math.floor((maxAngleDeg - minAngleDeg) / angleStepDeg) + 1;
-
-    const maxRho = Math.ceil(Math.hypot(w, h));
-    const rhoStep = 2;
-    const numRhos = Math.ceil((2 * maxRho) / rhoStep) + 1;
-
-    const houghAccumulator = new Float32Array(numAngles * numRhos);
-    const cosTable = new Float32Array(numAngles);
-    const sinTable = new Float32Array(numAngles);
-
-    for (let a = 0; a < numAngles; a++) {
-      const deg = minAngleDeg + a * angleStepDeg;
-      const rad = (deg * Math.PI) / 180;
-      cosTable[a] = Math.cos(rad);
-      sinTable[a] = Math.sin(rad);
-    }
-
-    // Votación en el acumulador de Hough por los píxeles de alto contraste cuyo gradiente
-    // es perpendicular al eje del mástil (cuerdas y bordes de madera)
-    for (let y = marginY; y < h - marginY; y += 2) {
-      const row = y * w;
-      for (let x = marginX; x < w - marginX; x += 2) {
-        const idx = row + x;
-        const mag = edgeMag[idx];
-        if (mag < 65) continue;
-
-        const gx = edgeGx[idx];
-        const gy = edgeGy[idx];
-
-        for (let a = 0; a < numAngles; a++) {
-          // Vector director del mástil u = (cos, sin), normal n = (-sin, cos)
-          // Un borde longitudinal del mástil tiene gradiente alineado con n: |gx*(-sin) + gy*(cos)| alto
-          const normalAlignment = Math.abs(-gx * sinTable[a] + gy * cosTable[a]) / mag;
-          if (normalAlignment > 0.78) {
-            // Recta parametrizada por su distancia normal al centro de la imagen
-            const dx = x - w * 0.5;
-            const dy = y - h * 0.5;
-            const rho = -dx * sinTable[a] + dy * cosTable[a];
-            const rIdx = Math.round((rho + maxRho) / rhoStep);
-            if (rIdx >= 0 && rIdx < numRhos) {
-              houghAccumulator[a * numRhos + rIdx] += mag * normalAlignment;
-            }
-          }
-        }
-      }
-    }
-
-    // 3. Buscar el ángulo (theta) y corredor radial (rho) con máxima energía de líneas paralelas
-    // (el mástil tiene borde superior, cuerdas y borde inferior paralelos separados entre 14 y 38 píxeles)
-    let bestAngleIdx = Math.floor(numAngles / 2);
-    let bestCenterRhoIdx = Math.floor(numRhos / 2);
-    let bestCorridorScore = 0;
-
-    const corridorHalfBins = Math.ceil(16 / rhoStep);
-
-    for (let a = 0; a < numAngles; a++) {
-      const rowOffset = a * numRhos;
-      for (let r = corridorHalfBins + 4; r < numRhos - corridorHalfBins - 4; r++) {
-        let corridorEnergy = 0;
-        for (let dr = -corridorHalfBins; dr <= corridorHalfBins; dr++) {
-          corridorEnergy += houghAccumulator[rowOffset + r + dr];
-        }
-        if (corridorEnergy > bestCorridorScore) {
-          bestCorridorScore = corridorEnergy;
-          bestAngleIdx = a;
-          bestCenterRhoIdx = r;
-        }
-      }
-    }
-
-    if (bestCorridorScore < 3500) {
-      return false;
-    }
-
-    // 4. Refinar mediante regresión lineal ponderada todos los puntos de alto contraste dentro del corredor ganador
-    const initialThetaRad = ((minAngleDeg + bestAngleIdx * angleStepDeg) * Math.PI) / 180;
-    const u0x = Math.cos(initialThetaRad);
-    const u0y = Math.sin(initialThetaRad);
-    const n0x = -u0y;
-    const n0y = u0x;
-    const winningRho = bestCenterRhoIdx * rhoStep - maxRho;
-
-    let sumW = 0;
-    let sumX = 0;
-    let sumY = 0;
-
-    for (let y = marginY; y < h - marginY; y++) {
-      const row = y * w;
-      for (let x = marginX; x < w - marginX; x++) {
-        const idx = row + x;
-        const mag = edgeMag[idx];
-        if (mag < 60) continue;
-
-        const dx = x - w * 0.5;
-        const dy = y - h * 0.5;
-        const rho = dx * n0x + dy * n0y;
-
-        if (Math.abs(rho - winningRho) <= 22) {
-          sumW += mag;
-          sumX += x * mag;
-          sumY += y * mag;
-        }
-      }
-    }
-
-    if (sumW < 1000) return false;
-
-    const centroidX = sumX / sumW;
-    const centroidY = sumY / sumW;
-
-    // Momentos de segundo orden (PCA / Regresión ortogonal) para obtener el ángulo exacto continuo
-    let sXX = 0;
-    let sYY = 0;
-    let sXY = 0;
-
-    for (let y = marginY; y < h - marginY; y++) {
-      const row = y * w;
-      for (let x = marginX; x < w - marginX; x++) {
-        const idx = row + x;
-        const mag = edgeMag[idx];
-        if (mag < 60) continue;
-
-        const dx0 = x - w * 0.5;
-        const dy0 = y - h * 0.5;
-        const rho = dx0 * n0x + dy0 * n0y;
-
-        if (Math.abs(rho - winningRho) <= 22) {
-          const dx = x - centroidX;
-          const dy = y - centroidY;
-          sXX += mag * dx * dx;
-          sYY += mag * dy * dy;
-          sXY += mag * dx * dy;
-        }
-      }
-    }
-
-    let refinedTheta = 0.5 * Math.atan2(2 * sXY, sXX - sYY);
-    // Limitar a un ángulo físico razonable de ejecución [-44°, +44°]
-    const maxRad = (44 * Math.PI) / 180;
-    refinedTheta = Math.max(-maxRad, Math.min(maxRad, refinedTheta));
-
-    const ux = Math.cos(refinedTheta);
-    const uy = Math.sin(refinedTheta);
-    const nx = -uy;
-    const ny = ux;
-
-    // 5. Estimar la extensión longitudinal (cejuela a traste 24) y el grosor transversal del diapasón
-    const transHist = new Float32Array(61); // [-30..+30] píxeles en dirección normal
-    let longMin = -w * 0.34;
-    let longMax = w * 0.34;
-
-    const longProfile = new Float32Array(w);
-    const halfW = Math.floor(w * 0.44);
-
-    for (let y = marginY; y < h - marginY; y++) {
-      const row = y * w;
-      for (let x = marginX; x < w - marginX; x++) {
-        const mag = edgeMag[row + x];
-        if (mag < 55) continue;
-
-        const dx = x - centroidX;
-        const dy = y - centroidY;
-        const uCoord = dx * ux + dy * uy;
-        const vCoord = dx * nx + dy * ny;
-
-        if (Math.abs(vCoord) <= 28 && Math.abs(uCoord) <= halfW) {
-          const vBin = Math.round(vCoord + 30);
-          if (vBin >= 0 && vBin <= 60) {
-            transHist[vBin] += mag;
-          }
-          const uBin = Math.min(w - 1, Math.max(0, Math.round(uCoord + w * 0.5)));
-          longProfile[uBin] += mag;
-        }
-      }
-    }
-
-    // Encontrar bordes superior (v < 0) e inferior (v > 0) del diapasón
-    let topOffsetPx = -11;
-    let maxTopVal = 0;
-    for (let v = -24; v <= -6; v++) {
-      const val = transHist[v + 30];
-      if (val > maxTopVal) {
-        maxTopVal = val;
-        topOffsetPx = v;
-      }
-    }
-
-    let bottomOffsetPx = 11;
-    let maxBotVal = 0;
-    for (let v = 6; v <= 24; v++) {
-      const val = transHist[v + 30];
-      if (val > maxBotVal) {
-        maxBotVal = val;
-        bottomOffsetPx = v;
-      }
-    }
-
-    const halfThicknessPx = Math.max(8, Math.min(22, (bottomOffsetPx - topOffsetPx) * 0.5));
-    const nutHalfWidthPx = halfThicknessPx * 0.86;    // Cejuela ligeramente más estrecha
-    const bridgeHalfWidthPx = halfThicknessPx * 1.08; // Traste 24 ligeramente más ancho
-
-    // Proyectar los 4 puntos ancla a lo largo del eje diagonal real detectado
-    longMin = -w * 0.35;
-    longMax = w * 0.35;
-
-    const toNormPoint = (uDistPx: number, vDistPx: number): Point2D => {
-      const px = centroidX + uDistPx * ux + vDistPx * nx;
-      const py = centroidY + uDistPx * uy + vDistPx * ny;
-      return {
-        x: Math.max(0.05, Math.min(0.95, px / w)),
-        y: Math.max(0.05, Math.min(0.95, py / h)),
-      };
-    };
-
-    this.anchorQuad = {
-      nutTop: toNormPoint(longMin, -nutHalfWidthPx),
-      bridgeTop: toNormPoint(longMax, -bridgeHalfWidthPx),
-      bridgeBottom: toNormPoint(longMax, bridgeHalfWidthPx),
-      nutBottom: toNormPoint(longMin, nutHalfWidthPx),
-    };
-
-    this.lastValidQuad = this.getNormalizedKeypoints();
-    this.resetKalmanToCurrent();
-
-    // Capturar los parches de referencia 24x24 iniciales en los 4 keypoints detectados
-    for (const key of KEYPOINT_KEYS) {
-      this.capturePatchTemplate(key, this.anchorQuad[key]);
-    }
-
-    this.state = 'tracking';
-    this.trackingConfidence = 0.96;
-    this.isFallbackFrozen = false;
-    return true;
-  }
-
-  /**
-   * Busca la nueva posición 2D (X, Y) de un punto clave mediante Template Matching SAD
-   * (Sum of Absolute Differences) en un parche de 24x24 píxeles dentro de una ventana de búsqueda 2D.
-   */
-  private matchKeypointTemplate2D(
-    key: keyof NeckKeypoints,
-    currentNormPt: Point2D
+  private matchMasterAnchorTemplate2D(
+    currentCenter: Point2D
   ): { point: Point2D; confidence: number } {
     const w = this.procWidth;
     const h = this.procHeight;
     const gray = this.grayBuffer;
-    const template = this.templates[key];
+    const template = this.masterTemplate;
 
-    const startX = Math.round(currentNormPt.x * w);
-    const startY = Math.round(currentNormPt.y * h);
+    const startX = Math.round(currentCenter.x * w);
+    const startY = Math.round(currentCenter.y * h);
 
-    // Si aún no hay template inicializado para este punto, lo capturamos ahora
-    if (!this.templateInitialized[key]) {
-      this.capturePatchTemplate(key, currentNormPt);
-      return { point: currentNormPt, confidence: 0.95 };
+    if (!this.masterTemplateInitialized) {
+      this.captureMasterPatchTemplate(currentCenter);
+      return { point: currentCenter, confidence: 0.95 };
     }
 
     const minX = Math.max(HALF_PATCH + 1, startX - SEARCH_RADIUS);
@@ -682,28 +471,25 @@ export class GuitarVisionArEngine {
     const maxY = Math.min(h - HALF_PATCH - 2, startY + SEARCH_RADIUS);
 
     if (minX > maxX || minY > maxY) {
-      return { point: currentNormPt, confidence: 0.4 };
+      return { point: currentCenter, confidence: 0.5 };
     }
 
     let bestSad = Infinity;
     let bestX = startX;
     let bestY = startY;
 
-    // Paso 1: Búsqueda en cuadrícula con paso 2 (Coarse search) + centro exacto
+    // Paso 1: Búsqueda en cuadrícula paso 2 (Coarse search)
     for (let cy = minY; cy <= maxY; cy += 2) {
       for (let cx = minX; cx <= maxX; cx += 2) {
-        let sad = 0;
+        let sad = (Math.abs(cx - startX) + Math.abs(cy - startY)) * 16;
         let tIdx = 0;
-        // Penalización suave por desplazamiento para preferir estabilidad ante zonas uniformes
-        const distPenalty = (Math.abs(cx - startX) + Math.abs(cy - startY)) * 18;
-        sad += distPenalty;
 
         for (let py = -HALF_PATCH; py < HALF_PATCH; py++) {
           const rowOffset = (cy + py) * w + cx;
           for (let px = -HALF_PATCH; px < HALF_PATCH; px++) {
             sad += Math.abs(gray[rowOffset + px] - template[tIdx++]);
           }
-          if (sad >= bestSad) break; // Early exit para mantener 60 FPS
+          if (sad >= bestSad) break;
         }
 
         if (sad < bestSad) {
@@ -714,7 +500,7 @@ export class GuitarVisionArEngine {
       }
     }
 
-    // Paso 2: Refinamiento fino de 1 píxel alrededor del mejor candidato (Fine search 3x3)
+    // Paso 2: Refinamiento fino de 1 píxel (Fine search 3x3) alrededor del mejor candidato
     const fineMinX = Math.max(HALF_PATCH + 1, bestX - 1);
     const fineMaxX = Math.min(w - HALF_PATCH - 2, bestX + 1);
     const fineMinY = Math.max(HALF_PATCH + 1, bestY - 1);
@@ -722,7 +508,7 @@ export class GuitarVisionArEngine {
 
     for (let cy = fineMinY; cy <= fineMaxY; cy++) {
       for (let cx = fineMinX; cx <= fineMaxX; cx++) {
-        let sad = (Math.abs(cx - startX) + Math.abs(cy - startY)) * 18;
+        let sad = (Math.abs(cx - startX) + Math.abs(cy - startY)) * 16;
         let tIdx = 0;
         for (let py = -HALF_PATCH; py < HALF_PATCH; py++) {
           const rowOffset = (cy + py) * w + cx;
@@ -740,125 +526,181 @@ export class GuitarVisionArEngine {
     }
 
     const avgPixelDiff = bestSad / (PATCH_SIZE * PATCH_SIZE);
-    // Confianza normalizada en [0..1] según el error medio por píxel del parche 24x24
-    const confidence = Math.max(0, Math.min(1, 1 - avgPixelDiff / 65));
+    const confidence = Math.max(0, Math.min(1, 1 - avgPixelDiff / 68));
 
-    const updatedPoint: Point2D = {
-      x: Math.max(0.04, Math.min(0.96, bestX / w)),
-      y: Math.max(0.04, Math.min(0.96, bestY / h)),
+    const updatedCenter: Point2D = {
+      x: Math.max(0.12, Math.min(0.88, bestX / w)),
+      y: Math.max(0.12, Math.min(0.88, bestY / h)),
     };
 
-    // Actualización adaptativa muy suave del template (Learning rate 8%) cuando la confianza es alta
-    // para adaptarse a cambios graduales de iluminación sin perder el anclaje
-    if (confidence > 0.72) {
+    // Actualización adaptativa suave (6%) del template del Ancla Maestra cuando la confianza es alta
+    if (confidence > 0.74) {
       let tIdx = 0;
       for (let py = -HALF_PATCH; py < HALF_PATCH; py++) {
         const rowOffset = (bestY + py) * w + bestX;
         for (let px = -HALF_PATCH; px < HALF_PATCH; px++) {
           const currentVal = gray[rowOffset + px];
-          template[tIdx] = Math.round(template[tIdx] * 0.92 + currentVal * 0.08);
+          template[tIdx] = Math.round(template[tIdx] * 0.94 + currentVal * 0.06);
           tIdx++;
         }
       }
     }
 
-    return { point: updatedPoint, confidence };
+    return { point: updatedCenter, confidence };
   }
 
   /**
-   * 3. TRACKING 2D REAL (SEGUIMIENTO FRAME A FRAME):
-   * Ejecuta Template Matching (SAD 24x24) en X e Y para cada uno de los 4 keypoints,
-   * filtra las nuevas coordenadas (X, Y) con el Filtro de Kalman 2D y preserva la coherencia
-   * geométrica del mástil.
+   * 3. Calculador de ángulo en cada frame dentro de una ventana de 60x60 px alrededor del Ancla Maestra.
+   * Mide el gradiente direccional (Sobel) y acumula un histograma de orientación de Hough local
+   * para determinar la rotación exacta actual del mástil.
    */
-  private updateTrackingStep(video: HTMLVideoElement | null, dt: number): NeckKeypoints {
-    if (video && video.readyState >= 2 && this.trackingMode === 'hybrid-auto') {
-      const captured = this.captureGrayscaleFrame(video);
-      if (captured) {
-        let totalConfidence = 0;
+  private estimateNeckAngleInWindow60x60(
+    centerNorm: Point2D,
+    referenceAngleRad: number
+  ): { angleRad: number; confidence: number } {
+    const w = this.procWidth;
+    const h = this.procHeight;
+    const gray = this.grayBuffer;
 
-        for (const key of KEYPOINT_KEYS) {
-          const match = this.matchKeypointTemplate2D(key, this.anchorQuad[key]);
-          totalConfidence += match.confidence;
-          this.anchorQuad[key] = match.point;
-        }
+    const cx = Math.round(centerNorm.x * w);
+    const cy = Math.round(centerNorm.y * h);
 
-        const meanConfidence = totalConfidence / 4;
+    const minX = Math.max(2, cx - HALF_ANGLE_WIN);
+    const maxX = Math.min(w - 3, cx + HALF_ANGLE_WIN);
+    const minY = Math.max(2, cy - HALF_ANGLE_WIN);
+    const maxY = Math.min(h - 3, cy + HALF_ANGLE_WIN);
 
-        // Dentro de updateTrackingStep, después de obtener las nuevas posiciones de matchKeypointTemplate2D:
-        const p1 = this.anchorQuad.nutTop;
-        const p2 = this.anchorQuad.bridgeTop;
-        const p3 = this.anchorQuad.bridgeBottom;
-        const p4 = this.anchorQuad.nutBottom;
+    // 72 bins angulares en [-PI/2, +PI/2) (resolución de 2.5° por bin)
+    const NUM_BINS = 72;
+    const hist = new Float32Array(NUM_BINS);
+    let totalGradEnergy = 0;
 
-        // Verificar que las líneas no se crucen (polígono convexo) y mantengan una proporción lógica
-        const isConvex =
-          (p2.x - p1.x) * (p3.y - p2.y) - (p2.y - p1.y) * (p3.x - p2.x) > 0 &&
-          (p3.x - p2.x) * (p4.y - p3.y) - (p3.y - p2.y) * (p4.x - p3.x) > 0 &&
-          (p4.x - p3.x) * (p1.y - p4.y) - (p4.y - p3.y) * (p1.x - p4.x) > 0 &&
-          (p1.x - p4.x) * (p2.y - p1.y) - (p1.y - p4.y) * (p2.x - p1.x) > 0;
+    for (let y = minY; y <= maxY; y++) {
+      const row = y * w;
+      for (let x = minX; x <= maxX; x++) {
+        const idx = row + x;
+        const gx =
+          -gray[idx - w - 1] +
+          gray[idx - w + 1] -
+          2 * gray[idx - 1] +
+          2 * gray[idx + 1] -
+          gray[idx + w - 1] +
+          gray[idx + w + 1];
 
-        const lengthTop = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-        const lengthBottom = Math.hypot(p3.x - p4.x, p3.y - p4.y);
-        const widthNut = Math.hypot(p4.x - p1.x, p4.y - p1.y);
-        const widthBridge = Math.hypot(p3.x - p2.x, p3.y - p2.y);
+        const gy =
+          -gray[idx - w - 1] -
+          2 * gray[idx - w] -
+          gray[idx - w + 1] +
+          gray[idx + w - 1] +
+          2 * gray[idx + w] +
+          gray[idx + w + 1];
 
-        // El largo debe ser notablemente mayor que el ancho, y el puente más ancho que la cejuela
-        const isLogicalShape =
-          lengthTop > widthNut * 2.5 &&
-          widthBridge > widthNut * 0.8 &&
-          Math.abs(lengthTop - lengthBottom) < 0.3;
+        const mag = Math.hypot(gx, gy);
+        if (mag < 38) continue;
 
-        if (!isConvex || !isLogicalShape || meanConfidence < 0.45) {
-          // Rechazar el frame por geometría absurda y congelar en la última posición válida
-          this.anchorQuad = {
-            nutTop: { ...this.lastValidQuad.nutTop },
-            bridgeTop: { ...this.lastValidQuad.bridgeTop },
-            bridgeBottom: { ...this.lastValidQuad.bridgeBottom },
-            nutBottom: { ...this.lastValidQuad.nutBottom },
-          };
-          this.isFallbackFrozen = true;
-          this.trackingConfidence = Math.max(0.2, this.trackingConfidence - 0.1);
-          return this.lastValidQuad;
-        }
+        // La tangente del borde del mástil / cuerdas es perpendicular al gradiente: atan2(gx, -gy)
+        let tangentAngle = Math.atan2(gx, -gy); // en [-PI, PI]
+        // Plegar al dominio axial [-PI/2, PI/2)
+        if (tangentAngle >= Math.PI * 0.5) tangentAngle -= Math.PI;
+        if (tangentAngle < -Math.PI * 0.5) tangentAngle += Math.PI;
 
-        // Si la geometría es válida, actualizar Kalman y guardar como válido
-        for (const key of KEYPOINT_KEYS) {
-          this.anchorQuad[key] = this.kalmanFilters[key].update(this.anchorQuad[key], dt);
-        }
-        this.lastValidQuad = this.getNormalizedKeypoints();
-        this.isFallbackFrozen = false;
-        this.trackingConfidence = Math.min(
-          0.99,
-          this.trackingConfidence * 0.85 + meanConfidence * 0.15
-        );
+        const normBin = ((tangentAngle + Math.PI * 0.5) / Math.PI) * NUM_BINS;
+        const binIdx = Math.max(0, Math.min(NUM_BINS - 1, Math.floor(normBin)));
+
+        // Ponderación espacial más fuerte cerca del Ancla Maestra dentro de la ventana 60x60
+        const distSq = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+        const spatialWeight = 1 / (1 + distSq / (ANGLE_WINDOW_SIZE * 10));
+
+        const weight = mag * spatialWeight;
+        hist[binIdx] += weight;
+        totalGradEnergy += weight;
       }
-    } else {
-      // Modo Kalman-Locked o Calibración Manual (con cámara apagada o bloqueada)
-      for (const key of KEYPOINT_KEYS) {
-        this.anchorQuad[key] = this.kalmanFilters[key].update(this.anchorQuad[key], dt);
-      }
-      const dx = this.anchorQuad.bridgeTop.x - this.anchorQuad.nutTop.x;
-      const dy = this.anchorQuad.bridgeTop.y - this.anchorQuad.nutTop.y;
-      const angleDeg = Math.abs((Math.atan2(dy, dx) * 180) / Math.PI);
-      this.isFallbackFrozen = angleDeg > 55;
-      this.trackingConfidence = this.isFallbackFrozen ? 0.38 : 0.97;
     }
 
-    return this.anchorQuad;
+    if (totalGradEnergy < 450) {
+      return { angleRad: referenceAngleRad, confidence: 0.4 };
+    }
+
+    // Suavizado circular del histograma angular (kernel [1, 2, 1] / 4)
+    const smoothedHist = new Float32Array(NUM_BINS);
+    for (let b = 0; b < NUM_BINS; b++) {
+      const prev = hist[(b - 1 + NUM_BINS) % NUM_BINS];
+      const curr = hist[b];
+      const next = hist[(b + 1) % NUM_BINS];
+      smoothedHist[b] = (prev + 2 * curr + next) * 0.25;
+    }
+
+    // Prior suave de continuidad temporal alrededor del ángulo previo para evitar saltos espurios
+    let bestBin = 0;
+    let bestScore = -Infinity;
+
+    for (let b = 0; b < NUM_BINS; b++) {
+      const binAngle = -Math.PI * 0.5 + ((b + 0.5) / NUM_BINS) * Math.PI;
+      // Diferencia axial en [-PI/2, PI/2]
+      let axialDiff = binAngle - referenceAngleRad;
+      while (axialDiff > Math.PI * 0.5) axialDiff -= Math.PI;
+      while (axialDiff < -Math.PI * 0.5) axialDiff += Math.PI;
+
+      const continuityBias = Math.exp(-(axialDiff * axialDiff) / (2 * 0.55 * 0.55));
+      const score = smoothedHist[b] * (0.65 + 0.35 * continuityBias);
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestBin = b;
+      }
+    }
+
+    // Interpolación parabólica sub-bin para obtener el ángulo continuo exacto
+    const prevVal = smoothedHist[(bestBin - 1 + NUM_BINS) % NUM_BINS];
+    const currVal = smoothedHist[bestBin];
+    const nextVal = smoothedHist[(bestBin + 1) % NUM_BINS];
+    const denom = prevVal - 2 * currVal + nextVal;
+    const offset = Math.abs(denom) > 1e-4 ? Math.max(-0.5, Math.min(0.5, (0.5 * (prevVal - nextVal)) / denom)) : 0;
+
+    let detectedAxialRad = -Math.PI * 0.5 + ((bestBin + 0.5 + offset) / NUM_BINS) * Math.PI;
+
+    // Desambiguar sentido del vector (+/- PI) para que sea continuo respecto a referenceAngleRad
+    let delta = detectedAxialRad - referenceAngleRad;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+
+    if (delta > Math.PI * 0.5) {
+      detectedAxialRad -= Math.PI;
+    } else if (delta < -Math.PI * 0.5) {
+      detectedAxialRad += Math.PI;
+    }
+
+    const peakConfidence = Math.min(1, (currVal * NUM_BINS) / (totalGradEnergy * 2.8));
+    return { angleRad: detectedAxialRad, confidence: Math.max(0.45, peakConfidence) };
   }
 
   /**
-   * 4. FASE DE CALIBRACIÓN INICIAL VERTICAL (detectVerticalNeck):
-   * - Procesa el frame en escala de grises.
-   * - Suma los gradientes verticales (Sobel X) proyectados sobre el eje X (Perfil de proyección 1D)
-   *   para encontrar las dos líneas paralelas del mástil sostenido verticalmente.
-   * - Si detecta el mástil verticalmente con confianza, dibuja un contorno/rectángulo verde brillante
-   *   sobre el área detectada en el video.
-   * - Exige mantener la posición durante 45 frames (~1.5 segundos) continuos.
-   * - Al llegar a 45 frames, calcula automáticamente nutTop, nutBottom, bridgeTop, bridgeBottom
-   *   a lo largo de ese corredor vertical, dispara capturePatchTemplate() para los 4 puntos
-   *   y cambia el estado a 'tracking'.
+   * Auto-escaneo bajo demanda que localiza el centroide y ángulo del mástil y fija el Cuerpo Rígido
+   */
+  public autoScanNeckFromVideo(video: HTMLVideoElement): boolean {
+    if (!this.captureGrayscaleFrame(video)) return false;
+
+    const angleEst = this.estimateNeckAngleInWindow60x60(this.masterAnchor, this.neckAngleRad);
+    this.neckAngleRad = angleEst.angleRad;
+    this.angleKalman.reset(this.neckAngleRad);
+    this.masterKalman.reset(this.masterAnchor);
+
+    this.captureMasterPatchTemplate(this.masterAnchor);
+    this.anchorQuad = this.computeSyntheticRigidQuad(this.masterAnchor, this.neckAngleRad);
+
+    this.state = 'tracking';
+    this.trackingConfidence = 0.96;
+    this.isFallbackFrozen = false;
+    return true;
+  }
+
+  /**
+   * Fase de Calibración Inicial Vertical (detectVerticalNeck):
+   * - Suma gradientes verticales (Sobel X) proyectados sobre el eje X (Perfil 1D).
+   * - Dibuja el rectángulo verde brillante durante 45 frames (~1.5s) continuos.
+   * - Al completar 45 frames, establece el Ancla Maestra en el centro del corredor,
+   *   fija la longitud/grosor del Cuerpo Rígido, captura el parche 24x24 del Ancla Maestra
+   *   y pasa a estado 'tracking'.
    */
   public detectVerticalNeck(
     ctx: CanvasRenderingContext2D,
@@ -879,14 +721,12 @@ export class GuitarVisionArEngine {
     const minSearchX = Math.floor(w * 0.18);
     const maxSearchX = Math.floor(w * 0.82);
 
-    // 1. Perfil de proyección 1D sobre el eje X sumando gradientes verticales |Sobel X|
     const rawProfileX = new Float32Array(w);
 
     for (let y = topRow; y <= bottomRow; y++) {
       const row = y * w;
       for (let x = minSearchX - 1; x <= maxSearchX + 1; x++) {
         const idx = row + x;
-        // Operador Sobel X 3x3 (responde a bordes verticales como los cantos del mástil y cuerdas)
         const gx =
           -gray[idx - w - 1] +
           gray[idx - w + 1] -
@@ -899,7 +739,6 @@ export class GuitarVisionArEngine {
       }
     }
 
-    // Suavizado 1D [1, 2, 1] / 4 para consolidar los dos picos de los bordes del diapasón
     const profileX = new Float32Array(w);
     let totalProfileEnergy = 0;
     const searchSpan = maxSearchX - minSearchX + 1;
@@ -912,7 +751,6 @@ export class GuitarVisionArEngine {
 
     const meanProfileEnergy = totalProfileEnergy / Math.max(1, searchSpan);
 
-    // 2. Buscar el par de líneas verticales paralelas (leftX, rightX) con separación de mástil real
     const minNeckWidthPx = Math.max(14, Math.floor(w * 0.05));
     const maxNeckWidthPx = Math.floor(w * 0.19);
     const centerFrameX = w * 0.5;
@@ -931,10 +769,8 @@ export class GuitarVisionArEngine {
         if (rightVal < meanProfileEnergy * 0.9) continue;
 
         const midX = (lx + rx) * 0.5;
-        // Penalización suave por alejarse del centro óptico para evitar marcos de puertas en los bordes
         const centerBias = 1 - (Math.abs(midX - centerFrameX) / (w * 0.5)) * 0.32;
-        // Simetría de intensidad entre borde izquierdo y derecho del mástil
-        const balance = 1 - Math.abs(leftVal - rightVal) / (leftVal + rightVal + 1e-3) * 0.35;
+        const balance = 1 - (Math.abs(leftVal - rightVal) / (leftVal + rightVal + 1e-3)) * 0.35;
 
         const pairScore = (leftVal + rightVal) * 0.5 * centerBias * balance;
         if (pairScore > bestScore) {
@@ -952,7 +788,6 @@ export class GuitarVisionArEngine {
       const normLeft = bestLeftX / w;
       const normRight = bestRightX / w;
 
-      // Suavizar el corredor vertical detectado
       this.calibCorridor.leftX = this.calibCorridor.leftX * 0.7 + normLeft * 0.3;
       this.calibCorridor.rightX = this.calibCorridor.rightX * 0.7 + normRight * 0.3;
       this.calibCorridor.topY = 0.14;
@@ -962,13 +797,15 @@ export class GuitarVisionArEngine {
         REQUIRED_CALIBRATION_FRAMES,
         this.calibrationHoldFrames + 1
       );
-      this.trackingConfidence = Math.min(0.99, 0.55 + (this.calibrationHoldFrames / REQUIRED_CALIBRATION_FRAMES) * 0.44);
+      this.trackingConfidence = Math.min(
+        0.99,
+        0.55 + (this.calibrationHoldFrames / REQUIRED_CALIBRATION_FRAMES) * 0.44
+      );
     } else {
       this.calibrationHoldFrames = Math.max(0, this.calibrationHoldFrames - 2);
       this.trackingConfidence = Math.max(0.25, this.trackingConfidence - 0.03);
     }
 
-    // 3. Dibujar contorno/rectángulo verde brillante sobre el área detectada en el video
     const rectX = this.calibCorridor.leftX * canvasWidth;
     const rectY = this.calibCorridor.topY * canvasHeight;
     const rectW = (this.calibCorridor.rightX - this.calibCorridor.leftX) * canvasWidth;
@@ -986,7 +823,6 @@ export class GuitarVisionArEngine {
       ctx.fillStyle = 'rgba(0, 255, 102, 0.16)';
       ctx.fillRect(rectX, rectY, rectW, rectH);
     } else {
-      // Guía central punteada cuando espera que el usuario coloque el mástil verticalmente
       const guideW = canvasWidth * 0.1;
       const guideX = (canvasWidth - guideW) * 0.5;
       ctx.setLineDash([6, 6]);
@@ -995,7 +831,6 @@ export class GuitarVisionArEngine {
       ctx.strokeRect(guideX, rectY, guideW, rectH);
     }
 
-    // Barra de progreso de los 45 frames (~1.5s) en pantalla
     const hudW = Math.min(360, canvasWidth * 0.86);
     const hudH = 58;
     const hudX = (canvasWidth - hudW) * 0.5;
@@ -1018,7 +853,6 @@ export class GuitarVisionArEngine {
       hudY + 21
     );
 
-    // Barra interior de llenado
     const barW = hudW - 28;
     const barX = hudX + 14;
     const barY = hudY + 34;
@@ -1028,35 +862,26 @@ export class GuitarVisionArEngine {
     ctx.fillRect(barX, barY, barW * progress, 12);
     ctx.restore();
 
-    // 4. Al llegar a 45 frames continuos, fijar los 4 puntos a lo largo del corredor vertical,
-    // capturar los parches de referencia 24x24 y pasar a estado 'tracking'
     if (this.calibrationHoldFrames >= REQUIRED_CALIBRATION_FRAMES) {
       const centerX = (this.calibCorridor.leftX + this.calibCorridor.rightX) * 0.5;
+      const centerY = (this.calibCorridor.topY + this.calibCorridor.bottomY) * 0.5;
       const halfWidth = Math.max(
-        0.028,
+        0.032,
         (this.calibCorridor.rightX - this.calibCorridor.leftX) * 0.5
       );
-      const nutHalfW = halfWidth * 0.9;     // Cejuela arriba (ligeramente más angosta)
-      const bridgeHalfW = halfWidth * 1.06; // Puente/Traste 24 abajo (ligeramente más ancho)
-      const topY = this.calibCorridor.topY;
-      const bottomY = this.calibCorridor.bottomY;
 
-      // Orden horario convexo (nutTop -> bridgeTop -> bridgeBottom -> nutBottom)
-      // donde nutTop->bridgeTop y nutBottom->bridgeBottom son los dos cantos largos del mástil
-      this.anchorQuad = {
-        nutTop: { x: Math.min(0.95, centerX + nutHalfW), y: topY },
-        bridgeTop: { x: Math.min(0.95, centerX + bridgeHalfW), y: bottomY },
-        bridgeBottom: { x: Math.max(0.05, centerX - bridgeHalfW), y: bottomY },
-        nutBottom: { x: Math.max(0.05, centerX - nutHalfW), y: topY },
-      };
+      // Fijar parámetros del Cuerpo Rígido Pivotante a partir del corredor vertical calibrado
+      this.masterAnchor = { x: centerX, y: centerY };
+      this.neckAngleRad = Math.PI * 0.5; // 90° vertical inicial
+      this.rigidHalfLength = 0.34;
+      this.rigidNutHalfWidth = halfWidth * 0.9;
+      this.rigidBridgeHalfWidth = halfWidth * 1.06;
 
-      this.lastValidQuad = this.getNormalizedKeypoints();
-      this.resetKalmanToCurrent();
+      this.masterKalman.reset(this.masterAnchor);
+      this.angleKalman.reset(this.neckAngleRad);
+      this.captureMasterPatchTemplate(this.masterAnchor);
 
-      for (const key of KEYPOINT_KEYS) {
-        this.capturePatchTemplate(key, this.anchorQuad[key]);
-      }
-
+      this.anchorQuad = this.computeSyntheticRigidQuad(this.masterAnchor, this.neckAngleRad);
       this.trackingConfidence = 0.98;
       this.isFallbackFrozen = false;
       this.state = 'tracking';
@@ -1067,7 +892,52 @@ export class GuitarVisionArEngine {
   }
 
   /**
-   * Renderiza el frame de video + el overlay AR con proyección homográfica 3D del diapasón
+   * Paso de Tracking por Cuerpo Rígido Pivotante:
+   * 1. Sigue únicamente el Ancla Maestra con SAD (24x24 px) + Kalman 2D.
+   * 2. Calcula el ángulo actual en ventana de 60x60 px alrededor del Ancla Maestra + Kalman Angular.
+   * 3. Deriva sintética y rígidamente los 4 esquineros (nutTop, bridgeTop, bridgeBottom, nutBottom).
+   */
+  private updateTrackingStep(video: HTMLVideoElement | null, dt: number): NeckKeypoints {
+    if (video && video.readyState >= 2 && this.trackingMode === 'hybrid-auto') {
+      const captured = this.captureGrayscaleFrame(video);
+      if (captured) {
+        // 1. Seguir el Ancla Maestra (Centroide / Traste 12) con Template Matching SAD 24x24
+        const anchorMatch = this.matchMasterAnchorTemplate2D(this.masterAnchor);
+        this.masterAnchor = this.masterKalman.update(anchorMatch.point, dt);
+
+        // 2. Calcular ángulo del mástil en ventana de 60x60 px alrededor del Ancla Maestra
+        const angleMatch = this.estimateNeckAngleInWindow60x60(
+          this.masterAnchor,
+          this.neckAngleRad
+        );
+        this.neckAngleRad = this.angleKalman.update(angleMatch.angleRad, dt);
+
+        // 3. Derivar sintéticamente los 4 puntos esquineros de forma 100% rígida
+        this.anchorQuad = this.computeSyntheticRigidQuad(
+          this.masterAnchor,
+          this.neckAngleRad
+        );
+
+        const combinedConfidence = anchorMatch.confidence * 0.65 + angleMatch.confidence * 0.35;
+        this.trackingConfidence = Math.min(
+          0.99,
+          this.trackingConfidence * 0.85 + combinedConfidence * 0.15
+        );
+        this.isFallbackFrozen = anchorMatch.confidence < 0.38;
+      }
+    } else {
+      this.masterAnchor = this.masterKalman.update(this.masterAnchor, dt);
+      this.neckAngleRad = this.angleKalman.update(this.neckAngleRad, dt);
+      this.anchorQuad = this.computeSyntheticRigidQuad(this.masterAnchor, this.neckAngleRad);
+      this.isFallbackFrozen = false;
+      this.trackingConfidence = 0.97;
+    }
+
+    return this.anchorQuad;
+  }
+
+  /**
+   * Renderiza el frame de video + el overlay AR con proyección homográfica 3D del Cuerpo Rígido
    */
   public renderArFrame(
     ctx: CanvasRenderingContext2D,
@@ -1175,8 +1045,7 @@ export class GuitarVisionArEngine {
       };
     }
 
-    // Si está en 'tracking', ejecuta updateTrackingStep (SAD 24x24 px + Kalman).
-    // Si está en 'idle', mantiene la pose base sin ejecutar SAD hasta calibrar o mover un pin.
+    // 3. Actualizar Cuerpo Rígido Pivotante (Ancla Maestra SAD 24x24 + Ángulo 60x60)
     const normQuad =
       this.state === 'tracking'
         ? this.updateTrackingStep(video, dt)
@@ -1189,7 +1058,6 @@ export class GuitarVisionArEngine {
       nutBottom: { x: normQuad.nutBottom.x * canvasWidth, y: normQuad.nutBottom.y * canvasHeight },
     };
 
-    // 3. Calcular Matriz de Homografía 3x3
     const H = computeUnitSquareHomography(screenQuad);
 
     const dx = screenQuad.bridgeTop.x - screenQuad.nutTop.x;
@@ -1224,7 +1092,7 @@ export class GuitarVisionArEngine {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // 5. Dibujar trastes proyectados por homografía (espaciado logarítmico real 1 - 2^(-f/12))
+    // 5. Dibujar trastes proyectados por homografía
     const inlayFrets = new Set([3, 5, 7, 9, 12, 15, 17, 19, 21, 24]);
 
     for (let f = 0; f <= totalFrets; f++) {
@@ -1380,21 +1248,33 @@ export class GuitarVisionArEngine {
 
     ctx.restore();
 
-    // 8. Dibujar Keypoints de Anclaje (Cejuela, Traste 12, Traste 24) y HUD de visión
-    const fret12U = getNormalizedFretPosition(12, totalFrets);
-    const fret12Top = projectHomographyPoint(H, fret12U, 0);
-    const fret12Bot = projectHomographyPoint(H, fret12U, 1);
+    // 8. Dibujar el Ancla Maestra (Traste 12 / Centroide) y los 4 esquineros rígidos
+    const masterScreenX = this.masterAnchor.x * canvasWidth;
+    const masterScreenY = this.masterAnchor.y * canvasHeight;
 
     if (this.showVisionDebug || this.trackingMode === 'manual-calibration' || hoveredKeypoint) {
+      // Visualización del Ancla Maestra (parche SAD 24x24 + ventana rotacional 60x60)
       ctx.save();
-      ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = '#a855f7';
+      ctx.strokeStyle = 'rgba(34, 211, 238, 0.75)';
       ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(fret12Top.x, fret12Top.y - 12);
-      ctx.lineTo(fret12Bot.x, fret12Bot.y + 12);
-      ctx.stroke();
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(masterScreenX - 24, masterScreenY - 24, 48, 48);
       ctx.restore();
+
+      ctx.beginPath();
+      ctx.arc(masterScreenX, masterScreenY, 8, 0, Math.PI * 2);
+      ctx.fillStyle = '#22d3ee';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(9, 9, 11, 0.88)';
+      ctx.fillRect(masterScreenX - 48, masterScreenY - 26, 96, 15);
+      ctx.fillStyle = '#67e8f9';
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('ANCLA MAESTRA', masterScreenX, masterScreenY - 17);
 
       const anchorEntries: [keyof NeckKeypoints, Point2D, string][] = [
         ['nutTop', screenQuad.nutTop, 'CEJUELA SUP'],
@@ -1405,14 +1285,13 @@ export class GuitarVisionArEngine {
 
       for (const [key, pt, label] of anchorEntries) {
         const isHovered = hoveredKeypoint === key;
-        // Halo táctil y recuadro indicador del parche 24x24 de Template Matching
         ctx.beginPath();
-        ctx.arc(pt.x, pt.y, isHovered ? 18 : 14, 0, Math.PI * 2);
-        ctx.fillStyle = isHovered ? 'rgba(250, 204, 21, 0.25)' : 'rgba(16, 185, 129, 0.22)';
+        ctx.arc(pt.x, pt.y, isHovered ? 18 : 13, 0, Math.PI * 2);
+        ctx.fillStyle = isHovered ? 'rgba(250, 204, 21, 0.25)' : 'rgba(16, 185, 129, 0.20)';
         ctx.fill();
 
         ctx.beginPath();
-        ctx.arc(pt.x, pt.y, isHovered ? 10 : 7.5, 0, Math.PI * 2);
+        ctx.arc(pt.x, pt.y, isHovered ? 10 : 7, 0, Math.PI * 2);
         ctx.fillStyle = isHovered ? '#facc15' : '#10b981';
         ctx.fill();
         ctx.lineWidth = 2;
@@ -1426,18 +1305,6 @@ export class GuitarVisionArEngine {
         ctx.textAlign = 'center';
         ctx.fillText(label, pt.x, pt.y - 19);
       }
-    }
-
-    if (this.isFallbackFrozen) {
-      ctx.fillStyle = 'rgba(245, 158, 11, 0.18)';
-      ctx.strokeStyle = 'rgba(245, 158, 11, 0.75)';
-      ctx.lineWidth = 1.5;
-      ctx.fillRect(16, canvasHeight - 54, 340, 36);
-      ctx.strokeRect(16, canvasHeight - 54, 340, 36);
-      ctx.fillStyle = '#fde68a';
-      ctx.font = 'bold 11px monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText('FALLBACK ACTIVO: POSE CONGELADA (ÁNGULO / TRACKING)', 28, canvasHeight - 32);
     }
 
     return {
