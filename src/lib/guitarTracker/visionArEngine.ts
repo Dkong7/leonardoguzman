@@ -325,8 +325,9 @@ export class GuitarVisionArEngine {
 
   /**
    * Si el usuario arrastra un pin en pantalla para ajuste manual (fine-tuning),
-   * no deforma el punto de manera aislada: traslada o rota el Cuerpo Rígido entero
-   * y actualiza el parche 24x24 del Ancla Maestra.
+   * reposiciona el extremo arrastrado (Cejuela o Traste 24), recalcula el Ancla Maestra
+   * en el punto medio exacto entre ambos extremos con longitud acotada [0.16..0.36]
+   * y recaptura el parche 24x24 bajo la nueva posición real de la guitarra.
    */
   public setNormalizedKeypoint(key: keyof NeckKeypoints, pt: Point2D) {
     const clamped: Point2D = {
@@ -334,22 +335,37 @@ export class GuitarVisionArEngine {
       y: Math.max(0.05, Math.min(0.95, pt.y)),
     };
 
-    const dx = clamped.x - this.masterAnchor.x;
-    const dy = clamped.y - this.masterAnchor.y;
-    const dist = Math.hypot(dx, dy);
+    const currentNutCenter: Point2D = {
+      x: (this.anchorQuad.nutTop.x + this.anchorQuad.nutBottom.x) * 0.5,
+      y: (this.anchorQuad.nutTop.y + this.anchorQuad.nutBottom.y) * 0.5,
+    };
+    const currentBridgeCenter: Point2D = {
+      x: (this.anchorQuad.bridgeTop.x + this.anchorQuad.bridgeBottom.x) * 0.5,
+      y: (this.anchorQuad.bridgeTop.y + this.anchorQuad.bridgeBottom.y) * 0.5,
+    };
 
-    if (dist > 0.08) {
-      // Ajustar rotación y semi-longitud del cuerpo rígido hacia donde el usuario posicionó el extremo
-      if (key === 'bridgeTop' || key === 'bridgeBottom') {
-        this.neckAngleRad = Math.atan2(dy, dx);
-      } else {
-        this.neckAngleRad = Math.atan2(-dy, -dx);
-      }
-      this.rigidHalfLength = Math.max(0.18, Math.min(0.44, dist));
+    let newNut = currentNutCenter;
+    let newBridge = currentBridgeCenter;
+
+    if (key === 'nutTop' || key === 'nutBottom') {
+      newNut = clamped;
     } else {
-      // Si arrastró cerca del centro, trasladar el Ancla Maestra
-      this.masterAnchor = { ...clamped };
+      newBridge = clamped;
     }
+
+    const dx = newBridge.x - newNut.x;
+    const dy = newBridge.y - newNut.y;
+    const fullDist = Math.hypot(dx, dy);
+
+    this.neckAngleRad = Math.atan2(dy, dx);
+    // Acotar rigurosamente la semi-longitud del mástil para que jamás se vuelva gigante
+    this.rigidHalfLength = Math.max(0.16, Math.min(0.36, fullDist * 0.5));
+
+    // Trasladar el Ancla Maestra al nuevo centro geométrico entre Cejuela y Puente
+    this.masterAnchor = {
+      x: Math.max(0.12, Math.min(0.88, (newNut.x + newBridge.x) * 0.5)),
+      y: Math.max(0.12, Math.min(0.88, (newNut.y + newBridge.y) * 0.5)),
+    };
 
     this.masterKalman.reset(this.masterAnchor);
     this.angleKalman.reset(this.neckAngleRad);
@@ -695,12 +711,15 @@ export class GuitarVisionArEngine {
   }
 
   /**
-   * Fase de Calibración Inicial Vertical (detectVerticalNeck):
-   * - Suma gradientes verticales (Sobel X) proyectados sobre el eje X (Perfil 1D).
-   * - Dibuja el rectángulo verde brillante durante 45 frames (~1.5s) continuos.
-   * - Al completar 45 frames, establece el Ancla Maestra en el centro del corredor,
-   *   fija la longitud/grosor del Cuerpo Rígido, captura el parche 24x24 del Ancla Maestra
-   *   y pasa a estado 'tracking'.
+   * Fase de Calibración Inicial Vertical Endurecida (detectVerticalNeck):
+   * 1. Filtro de Bordes Paralelos con Polaridad Opuesta: Busca un par de bordes verticales rectilíneos
+   *    con signo de gradiente opuesto (borde izquierdo oscuro->claro y derecho claro->oscuro, o viceversa)
+   *    separados estrictamente entre el 8% y el 20% del ancho del frame.
+   * 2. Rechazo de Formas Orgánicas: Aplica un umbral de gradiente Sobel X estricto (|Gx| >= 95 y |Gx| > 1.75*|Gy|)
+   *    y exige colinealidad en 3 tercios verticales para descartar rostros, cuellos y siluetas de camisetas.
+   * 3. Filtro de Varianza Interna y Alta Frecuencia (Trastes/Cuerdas): Calcula la varianza de luminancia
+   *    y la densidad de gradientes horizontales (Sobel Y de los trastes metálicos) dentro del corredor.
+   *    Si el interior es plano o suave (piel, pecho o tela), descarta el candidato inmediatamente.
    */
   public detectVerticalNeck(
     ctx: CanvasRenderingContext2D,
@@ -718,13 +737,26 @@ export class GuitarVisionArEngine {
 
     const topRow = Math.floor(h * 0.14);
     const bottomRow = Math.floor(h * 0.86);
-    const minSearchX = Math.floor(w * 0.18);
-    const maxSearchX = Math.floor(w * 0.82);
+    const spanRows = bottomRow - topRow + 1;
+    const minSearchX = Math.floor(w * 0.20);
+    const maxSearchX = Math.floor(w * 0.80);
 
-    const rawProfileX = new Float32Array(w);
+    // Perfiles 1D separados por polaridad de Sobel X (Positivo: oscuro->claro, Negativo: claro->oscuro)
+    const rawPosX = new Float32Array(w);
+    const rawNegX = new Float32Array(w);
+
+    // Contadores de presencia en 3 segmentos verticales (superior, medio, inferior) para exigir paralelismo recto
+    const segSpan = Math.floor(spanRows / 3);
+    const posSegHits = [new Uint16Array(w), new Uint16Array(w), new Uint16Array(w)];
+    const negSegHits = [new Uint16Array(w), new Uint16Array(w), new Uint16Array(w)];
+
+    // 2. Umbral de gradiente Sobel estricto para ignorar bordes suaves de caras, brazos y camisetas
+    const STRICT_SOBEL_X_THRESHOLD = 95;
 
     for (let y = topRow; y <= bottomRow; y++) {
       const row = y * w;
+      const segIdx = Math.min(2, Math.floor((y - topRow) / Math.max(1, segSpan)));
+
       for (let x = minSearchX - 1; x <= maxSearchX + 1; x++) {
         const idx = row + x;
         const gx =
@@ -735,61 +767,193 @@ export class GuitarVisionArEngine {
           gray[idx + w - 1] +
           gray[idx + w + 1];
 
-        rawProfileX[x] += Math.abs(gx);
+        const gy =
+          -gray[idx - w - 1] -
+          2 * gray[idx - w] -
+          gray[idx - w + 1] +
+          gray[idx + w - 1] +
+          2 * gray[idx + w] +
+          gray[idx + w + 1];
+
+        const absGx = Math.abs(gx);
+        const absGy = Math.abs(gy);
+
+        // Solo acumular píxeles con borde vertical nítido (rechaza curvas orgánicas diagonales)
+        if (absGx >= STRICT_SOBEL_X_THRESHOLD && absGx > absGy * 1.75) {
+          if (gx > 0) {
+            rawPosX[x] += gx;
+            posSegHits[segIdx][x]++;
+          } else {
+            rawNegX[x] += -gx;
+            negSegHits[segIdx][x]++;
+          }
+        }
       }
     }
 
-    const profileX = new Float32Array(w);
-    let totalProfileEnergy = 0;
-    const searchSpan = maxSearchX - minSearchX + 1;
-
+    // Suavizado estrecho [1, 2, 1] / 4 conservando la separación de polaridad
+    const posProfileX = new Float32Array(w);
+    const negProfileX = new Float32Array(w);
     for (let x = minSearchX; x <= maxSearchX; x++) {
-      const smoothed = (rawProfileX[x - 1] + 2 * rawProfileX[x] + rawProfileX[x + 1]) * 0.25;
-      profileX[x] = smoothed;
-      totalProfileEnergy += smoothed;
+      posProfileX[x] = (rawPosX[x - 1] + 2 * rawPosX[x] + rawPosX[x + 1]) * 0.25;
+      negProfileX[x] = (rawNegX[x - 1] + 2 * rawNegX[x] + rawNegX[x + 1]) * 0.25;
     }
 
-    const meanProfileEnergy = totalProfileEnergy / Math.max(1, searchSpan);
-
-    const minNeckWidthPx = Math.max(14, Math.floor(w * 0.05));
-    const maxNeckWidthPx = Math.floor(w * 0.19);
+    // 1. Ancho lógico estricto del mástil: entre el 8% y el 20% del ancho del frame
+    const minNeckWidthPx = Math.floor(w * 0.08);
+    const maxNeckWidthPx = Math.floor(w * 0.20);
     const centerFrameX = w * 0.5;
+    const minSegmentHits = Math.max(4, Math.floor(segSpan * 0.16));
 
+    // Evaluador de colinealidad vertical: exige que el borde exista en los 3 tercios verticales
+    const hasStraightVerticalSupport = (
+      segArray: Uint16Array[],
+      x: number
+    ): boolean => {
+      const s0 = segArray[0][x - 1] + segArray[0][x] + segArray[0][x + 1];
+      const s1 = segArray[1][x - 1] + segArray[1][x] + segArray[1][x + 1];
+      const s2 = segArray[2][x - 1] + segArray[2][x] + segArray[2][x + 1];
+      return s0 >= minSegmentHits && s1 >= minSegmentHits && s2 >= minSegmentHits;
+    };
+
+    // 3. Evaluador de Varianza Interna de Luminancia + Frecuencia de Trastes Horizontales (Sobel Y)
+    const evaluateInternalFretboardTexture = (
+      lx: number,
+      rx: number
+    ): { valid: boolean; variance: number; fretRows: number } => {
+      const innerLeft = lx + 2;
+      const innerRight = rx - 2;
+      if (innerRight <= innerLeft) {
+        return { valid: false, variance: 0, fretRows: 0 };
+      }
+
+      let sumLum = 0;
+      let sumLumSq = 0;
+      let pixelCount = 0;
+      let fretRows = 0;
+
+      for (let y = topRow + 2; y <= bottomRow - 2; y++) {
+        const row = y * w;
+        let rowGyPeak = 0;
+
+        for (let x = innerLeft; x <= innerRight; x++) {
+          const idx = row + x;
+          const val = gray[idx];
+          sumLum += val;
+          sumLumSq += val * val;
+          pixelCount++;
+
+          // Gradiente vertical Sobel Y (detecta líneas horizontales de los trastes metálicos)
+          const gy =
+            -gray[idx - w - 1] -
+            2 * gray[idx - w] -
+            gray[idx - w + 1] +
+            gray[idx + w - 1] +
+            2 * gray[idx + w] +
+            gray[idx + w + 1];
+          const gx =
+            -gray[idx - w - 1] +
+            gray[idx - w + 1] -
+            2 * gray[idx - 1] +
+            2 * gray[idx + 1] -
+            gray[idx + w - 1] +
+            gray[idx + w + 1];
+
+          const absGy = Math.abs(gy);
+          if (absGy >= 75 && absGy > Math.abs(gx) * 1.15) {
+            if (absGy > rowGyPeak) rowGyPeak = absGy;
+          }
+        }
+
+        if (rowGyPeak >= 80) {
+          fretRows++;
+        }
+      }
+
+      if (pixelCount === 0) return { valid: false, variance: 0, fretRows: 0 };
+
+      const mean = sumLum / pixelCount;
+      const variance = sumLumSq / pixelCount - mean * mean;
+
+      // Exigir varianza interna alta (>= 240) y presencia de múltiples trastes horizontales (>= 10 filas)
+      // Una camiseta, brazo o rostro tiene textura interna plana o carece de trastes periódicos
+      const valid = variance >= 240 && fretRows >= 10;
+      return { valid, variance, fretRows };
+    };
+
+    const minEdgeEnergy = spanRows * STRICT_SOBEL_X_THRESHOLD * 0.22;
     let bestScore = -Infinity;
-    let bestLeftX = Math.floor(w * 0.45);
-    let bestRightX = Math.floor(w * 0.55);
+    let bestLeftX = -1;
+    let bestRightX = -1;
 
     for (let lx = minSearchX; lx <= maxSearchX - minNeckWidthPx; lx++) {
-      const leftVal = profileX[lx];
-      if (leftVal < meanProfileEnergy * 0.9) continue;
+      const posLeft = posProfileX[lx];
+      const negLeft = negProfileX[lx];
+      if (posLeft < minEdgeEnergy && negLeft < minEdgeEnergy) continue;
+
+      const leftStraightPos = posLeft >= minEdgeEnergy && hasStraightVerticalSupport(posSegHits, lx);
+      const leftStraightNeg = negLeft >= minEdgeEnergy && hasStraightVerticalSupport(negSegHits, lx);
+      if (!leftStraightPos && !leftStraightNeg) continue;
 
       const maxRx = Math.min(maxSearchX, lx + maxNeckWidthPx);
       for (let rx = lx + minNeckWidthPx; rx <= maxRx; rx++) {
-        const rightVal = profileX[rx];
-        if (rightVal < meanProfileEnergy * 0.9) continue;
+        // Caso A: Mástil más claro que el fondo (Izquierda Oscuro->Claro [Pos], Derecha Claro->Oscuro [Neg])
+        let oppositePairEnergy = 0;
+        if (
+          leftStraightPos &&
+          negProfileX[rx] >= minEdgeEnergy &&
+          hasStraightVerticalSupport(negSegHits, rx)
+        ) {
+          const symmetry =
+            1 - (Math.abs(posLeft - negProfileX[rx]) / (posLeft + negProfileX[rx] + 1e-3)) * 0.45;
+          oppositePairEnergy = (posLeft + negProfileX[rx]) * 0.5 * symmetry;
+        }
+
+        // Caso B: Mástil oscuro sobre fondo claro (Izquierda Claro->Oscuro [Neg], Derecha Oscuro->Claro [Pos])
+        if (
+          leftStraightNeg &&
+          posProfileX[rx] >= minEdgeEnergy &&
+          hasStraightVerticalSupport(posSegHits, rx)
+        ) {
+          const symmetry =
+            1 - (Math.abs(negLeft - posProfileX[rx]) / (negLeft + posProfileX[rx] + 1e-3)) * 0.45;
+          const candidateB = (negLeft + posProfileX[rx]) * 0.5 * symmetry;
+          if (candidateB > oppositePairEnergy) {
+            oppositePairEnergy = candidateB;
+          }
+        }
+
+        if (oppositePairEnergy < minEdgeEnergy) continue;
 
         const midX = (lx + rx) * 0.5;
-        const centerBias = 1 - (Math.abs(midX - centerFrameX) / (w * 0.5)) * 0.32;
-        const balance = 1 - (Math.abs(leftVal - rightVal) / (leftVal + rightVal + 1e-3)) * 0.35;
+        const centerBias = 1 - (Math.abs(midX - centerFrameX) / (w * 0.5)) * 0.35;
+        const preliminaryScore = oppositePairEnergy * centerBias;
 
-        const pairScore = (leftVal + rightVal) * 0.5 * centerBias * balance;
-        if (pairScore > bestScore) {
-          bestScore = pairScore;
+        if (preliminaryScore <= bestScore) continue;
+
+        // Validar textura interna de trastes y varianza antes de aceptar el par de bordes
+        const textureCheck = evaluateInternalFretboardTexture(lx, rx);
+        if (!textureCheck.valid) continue;
+
+        const textureBonus = Math.min(1.35, 1 + (textureCheck.fretRows / 40) * 0.35);
+        const finalScore = preliminaryScore * textureBonus;
+
+        if (finalScore > bestScore) {
+          bestScore = finalScore;
           bestLeftX = lx;
           bestRightX = rx;
         }
       }
     }
 
-    const edgeConfidenceRatio = bestScore / Math.max(1, meanProfileEnergy);
-    const isDetected = edgeConfidenceRatio > 1.28 && bestScore > 2600;
+    const isDetected = bestLeftX !== -1 && bestRightX !== -1 && bestScore >= minEdgeEnergy * 0.95;
 
     if (isDetected) {
       const normLeft = bestLeftX / w;
       const normRight = bestRightX / w;
 
-      this.calibCorridor.leftX = this.calibCorridor.leftX * 0.7 + normLeft * 0.3;
-      this.calibCorridor.rightX = this.calibCorridor.rightX * 0.7 + normRight * 0.3;
+      this.calibCorridor.leftX = this.calibCorridor.leftX * 0.65 + normLeft * 0.35;
+      this.calibCorridor.rightX = this.calibCorridor.rightX * 0.65 + normRight * 0.35;
       this.calibCorridor.topY = 0.14;
       this.calibCorridor.bottomY = 0.86;
 
@@ -802,8 +966,9 @@ export class GuitarVisionArEngine {
         0.55 + (this.calibrationHoldFrames / REQUIRED_CALIBRATION_FRAMES) * 0.44
       );
     } else {
-      this.calibrationHoldFrames = Math.max(0, this.calibrationHoldFrames - 2);
-      this.trackingConfidence = Math.max(0.25, this.trackingConfidence - 0.03);
+      // Descartar inmediatamente si es una silueta orgánica sin trastes ni bordes paralelos
+      this.calibrationHoldFrames = Math.max(0, this.calibrationHoldFrames - 3);
+      this.trackingConfidence = Math.max(0.25, this.trackingConfidence - 0.04);
     }
 
     const rectX = this.calibCorridor.leftX * canvasWidth;
@@ -813,7 +978,7 @@ export class GuitarVisionArEngine {
     const progress = this.calibrationHoldFrames / REQUIRED_CALIBRATION_FRAMES;
 
     ctx.save();
-    if (isDetected || this.calibrationHoldFrames > 0) {
+    if (isDetected) {
       ctx.shadowColor = '#00ff66';
       ctx.shadowBlur = 18;
       ctx.strokeStyle = '#00ff66';
@@ -823,39 +988,42 @@ export class GuitarVisionArEngine {
       ctx.fillStyle = 'rgba(0, 255, 102, 0.16)';
       ctx.fillRect(rectX, rectY, rectW, rectH);
     } else {
-      const guideW = canvasWidth * 0.1;
+      // Guía central punteada: obliga a colocar el diapasón vertical con trastes visibles hacia la cámara
+      const guideW = canvasWidth * 0.12;
       const guideX = (canvasWidth - guideW) * 0.5;
       ctx.setLineDash([6, 6]);
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.75)';
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.8)';
       ctx.lineWidth = 2;
       ctx.strokeRect(guideX, rectY, guideW, rectH);
     }
 
-    const hudW = Math.min(360, canvasWidth * 0.86);
-    const hudH = 58;
+    const hudW = Math.min(400, canvasWidth * 0.9);
+    const hudH = 60;
     const hudX = (canvasWidth - hudW) * 0.5;
     const hudY = canvasHeight - hudH - 36;
 
     ctx.shadowBlur = 0;
     ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(7, 9, 20, 0.9)';
-    ctx.strokeStyle = isDetected ? '#00ff66' : 'rgba(56, 189, 248, 0.6)';
+    ctx.fillStyle = 'rgba(7, 9, 20, 0.92)';
+    ctx.strokeStyle = isDetected ? '#00ff66' : 'rgba(56, 189, 248, 0.65)';
     ctx.lineWidth = 1.5;
     ctx.fillRect(hudX, hudY, hudW, hudH);
     ctx.strokeRect(hudX, hudY, hudW, hudH);
 
     ctx.fillStyle = isDetected ? '#00ff66' : '#e2e8f0';
-    ctx.font = 'bold 12px Inter, monospace, sans-serif';
+    ctx.font = 'bold 11px Inter, monospace, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(
-      `CALIBRACIÓN VERTICAL: ${this.calibrationHoldFrames}/${REQUIRED_CALIBRATION_FRAMES} FRAMES (${Math.round(progress * 100)}%)`,
+      isDetected
+        ? `DIAPASÓN DETECTADO: MANTÉN ${this.calibrationHoldFrames}/${REQUIRED_CALIBRATION_FRAMES} FRAMES (${Math.round(progress * 100)}%)`
+        : `ALINEA EL DIAPASÓN VERTICAL EN EL CENTRO (${this.calibrationHoldFrames}/${REQUIRED_CALIBRATION_FRAMES})`,
       canvasWidth * 0.5,
       hudY + 21
     );
 
     const barW = hudW - 28;
     const barX = hudX + 14;
-    const barY = hudY + 34;
+    const barY = hudY + 35;
     ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
     ctx.fillRect(barX, barY, barW, 12);
     ctx.fillStyle = '#00ff66';
@@ -866,14 +1034,14 @@ export class GuitarVisionArEngine {
       const centerX = (this.calibCorridor.leftX + this.calibCorridor.rightX) * 0.5;
       const centerY = (this.calibCorridor.topY + this.calibCorridor.bottomY) * 0.5;
       const halfWidth = Math.max(
-        0.032,
-        (this.calibCorridor.rightX - this.calibCorridor.leftX) * 0.5
+        0.04,
+        Math.min(0.10, (this.calibCorridor.rightX - this.calibCorridor.leftX) * 0.5)
       );
 
-      // Fijar parámetros del Cuerpo Rígido Pivotante a partir del corredor vertical calibrado
+      // Fijar parámetros del Cuerpo Rígido Pivotante a partir del diapasón real verificado
       this.masterAnchor = { x: centerX, y: centerY };
       this.neckAngleRad = Math.PI * 0.5; // 90° vertical inicial
-      this.rigidHalfLength = 0.34;
+      this.rigidHalfLength = 0.32;
       this.rigidNutHalfWidth = halfWidth * 0.9;
       this.rigidBridgeHalfWidth = halfWidth * 1.06;
 
