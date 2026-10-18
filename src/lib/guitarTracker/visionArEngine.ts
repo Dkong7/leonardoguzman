@@ -267,10 +267,10 @@ export class GuitarVisionArEngine {
     this.lastValidQuad = this.getNormalizedKeypoints();
     this.resetKalmanToCurrent();
     for (const key of KEYPOINT_KEYS) {
+      this.templates[key].fill(0);
+      this.templateInitialized[key] = false;
       if (this.hasValidGrayFrame) {
         this.capturePatchTemplate(key, this.anchorQuad[key]);
-      } else {
-        this.templateInitialized[key] = false;
       }
     }
     this.trackingConfidence = 0.96;
@@ -748,37 +748,58 @@ export class GuitarVisionArEngine {
         for (const key of KEYPOINT_KEYS) {
           const match = this.matchKeypointTemplate2D(key, this.anchorQuad[key]);
           totalConfidence += match.confidence;
-          // Pasar las nuevas coordenadas 2D (X, Y) al Filtro de Kalman correspondiente
-          this.anchorQuad[key] = this.kalmanFilters[key].update(match.point, dt);
+          this.anchorQuad[key] = match.point;
         }
 
         const meanConfidence = totalConfidence / 4;
 
-        // Evaluar ángulo real del eje del mástil
-        const axisDx =
-          (this.anchorQuad.bridgeTop.x + this.anchorQuad.bridgeBottom.x) * 0.5 -
-          (this.anchorQuad.nutTop.x + this.anchorQuad.nutBottom.x) * 0.5;
-        const axisDy =
-          (this.anchorQuad.bridgeTop.y + this.anchorQuad.bridgeBottom.y) * 0.5 -
-          (this.anchorQuad.nutTop.y + this.anchorQuad.nutBottom.y) * 0.5;
-        const angleDeg = Math.abs((Math.atan2(axisDy, axisDx) * 180) / Math.PI);
+        // Dentro de updateTrackingStep, después de obtener las nuevas posiciones de matchKeypointTemplate2D:
+        const p1 = this.anchorQuad.nutTop;
+        const p2 = this.anchorQuad.bridgeTop;
+        const p3 = this.anchorQuad.bridgeBottom;
+        const p4 = this.anchorQuad.nutBottom;
 
-        if (angleDeg > 55 || meanConfidence < 0.38) {
-          this.trackingConfidence = Math.max(0.25, this.trackingConfidence - 0.05);
-        } else {
-          this.trackingConfidence = Math.min(
-            0.99,
-            this.trackingConfidence * 0.85 + meanConfidence * 0.15
-          );
-        }
+        // Verificar que las líneas no se crucen (polígono convexo) y mantengan una proporción lógica
+        const isConvex =
+          (p2.x - p1.x) * (p3.y - p2.y) - (p2.y - p1.y) * (p3.x - p2.x) > 0 &&
+          (p3.x - p2.x) * (p4.y - p3.y) - (p3.y - p2.y) * (p4.x - p3.x) > 0 &&
+          (p4.x - p3.x) * (p1.y - p4.y) - (p4.y - p3.y) * (p1.x - p4.x) > 0 &&
+          (p1.x - p4.x) * (p2.y - p1.y) - (p1.y - p4.y) * (p2.x - p1.x) > 0;
 
-        if (this.trackingConfidence < 0.44 || angleDeg > 55) {
+        const lengthTop = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        const lengthBottom = Math.hypot(p3.x - p4.x, p3.y - p4.y);
+        const widthNut = Math.hypot(p4.x - p1.x, p4.y - p1.y);
+        const widthBridge = Math.hypot(p3.x - p2.x, p3.y - p2.y);
+
+        // El largo debe ser notablemente mayor que el ancho, y el puente más ancho que la cejuela
+        const isLogicalShape =
+          lengthTop > widthNut * 2.5 &&
+          widthBridge > widthNut * 0.8 &&
+          Math.abs(lengthTop - lengthBottom) < 0.3;
+
+        if (!isConvex || !isLogicalShape || meanConfidence < 0.45) {
+          // Rechazar el frame por geometría absurda y congelar en la última posición válida
+          this.anchorQuad = {
+            nutTop: { ...this.lastValidQuad.nutTop },
+            bridgeTop: { ...this.lastValidQuad.bridgeTop },
+            bridgeBottom: { ...this.lastValidQuad.bridgeBottom },
+            nutBottom: { ...this.lastValidQuad.nutBottom },
+          };
           this.isFallbackFrozen = true;
+          this.trackingConfidence = Math.max(0.2, this.trackingConfidence - 0.1);
           return this.lastValidQuad;
-        } else {
-          this.isFallbackFrozen = false;
-          this.lastValidQuad = this.getNormalizedKeypoints();
         }
+
+        // Si la geometría es válida, actualizar Kalman y guardar como válido
+        for (const key of KEYPOINT_KEYS) {
+          this.anchorQuad[key] = this.kalmanFilters[key].update(this.anchorQuad[key], dt);
+        }
+        this.lastValidQuad = this.getNormalizedKeypoints();
+        this.isFallbackFrozen = false;
+        this.trackingConfidence = Math.min(
+          0.99,
+          this.trackingConfidence * 0.85 + meanConfidence * 0.15
+        );
       }
     } else {
       // Modo Kalman-Locked o Calibración Manual (con cámara apagada o bloqueada)

@@ -64,6 +64,29 @@ const GuitarTracker: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const demoIntervalRef = useRef<number | null>(null);
+  const wakeLockRef = useRef<any>(null);
+
+  // 1. Bloqueo de Pantalla (Screen Wake Lock API) para evitar que el celular se apague mientras tocas
+  const requestWakeLock = async () => {
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        wakeLockRef.current.addEventListener('release', () => {
+          console.log('Wake Lock liberado');
+        });
+      } catch (err: any) {
+        console.error(`Error WakeLock: ${err.name}, ${err.message}`);
+      }
+    }
+  };
+
+  const releaseWakeLock = () => {
+    if (wakeLockRef.current !== null) {
+      wakeLockRef.current.release().then(() => {
+        wakeLockRef.current = null;
+      });
+    }
+  };
 
   // --- Estado de Dispositivos (Webcam / Cámara Móvil y Audio) ---
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
@@ -205,6 +228,7 @@ const GuitarTracker: React.FC = () => {
     loadDevices();
 
     return () => {
+      releaseWakeLock();
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (demoIntervalRef.current) window.clearInterval(demoIntervalRef.current);
       dspEngineRef.current?.stop();
@@ -215,6 +239,17 @@ const GuitarTracker: React.FC = () => {
       }
     };
   }, []);
+
+  // Re-solicitar Wake Lock si el usuario vuelve a la pestaña mientras la cámara está activa
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && cameraActive) {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [cameraActive]);
 
   // Matriz del diapasón calculada por el motor de teoría musical
   const fretMatrix: FretNode[][] = useMemo(() => {
@@ -266,6 +301,7 @@ const GuitarTracker: React.FC = () => {
         };
         await videoRef.current.play();
         setCameraActive(true);
+        await requestWakeLock();
         const shouldMirror = facing === 'user' && !customDeviceId;
         setMirrorCamera(shouldMirror);
       }
@@ -289,6 +325,7 @@ const GuitarTracker: React.FC = () => {
         videoRef.current.srcObject = null;
       }
       setCameraActive(false);
+      releaseWakeLock();
       return;
     }
     await startCameraStream(cameraFacingMode, selectedVideoId || undefined);
@@ -681,10 +718,20 @@ const GuitarTracker: React.FC = () => {
               </span>
             </button>
 
-            {/* 4. Simular Guitarra (Demo Lick) */}
+            {/* 4. Botón Recalibrar Mástil (Limpia parches basura / tatuajes y restaura pose limpia) */}
+            <button
+              onClick={() => visionEngineRef.current?.resetDefaultNeckPose()}
+              className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/60 text-amber-200 transition-all shadow-sm"
+              title="Limpiar parches de referencia y restaurar pose limpia del mástil"
+            >
+              <RefreshCw className="w-4 h-4 text-amber-300 shrink-0" />
+              <span className="truncate">Recalibrar</span>
+            </button>
+
+            {/* 5. Simular Guitarra (Demo Lick) */}
             <button
               onClick={toggleDemoLick}
-              className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+              className={`col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
                 isDemoPlaying
                   ? 'bg-amber-500/25 border-amber-400 text-amber-200'
                   : 'bg-slate-800/90 hover:bg-slate-700 border-slate-700 text-slate-200'
@@ -783,10 +830,11 @@ const GuitarTracker: React.FC = () => {
                   </button>
                   <button
                     onClick={() => visionEngineRef.current?.resetDefaultNeckPose()}
-                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-semibold flex items-center gap-1"
+                    className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 font-bold flex items-center gap-1"
+                    title="Limpiar parches basura y recalibrar pose del mástil"
                   >
-                    <RefreshCw className="w-3 h-3" />
-                    <span className="hidden sm:inline">Reset</span>
+                    <RefreshCw className="w-3 h-3 text-amber-300" />
+                    <span>Recalibrar</span>
                   </button>
                 </div>
               </div>
@@ -869,10 +917,10 @@ const GuitarTracker: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Guía táctil inferior en el canvas */}
+                {/* Guía táctil e indicación de distancia óptica (70-90 cm) inferior en el canvas */}
                 <div className="absolute bottom-1.5 inset-x-2 pointer-events-none flex justify-center">
-                  <div className="bg-slate-950/80 border border-slate-800/90 px-2.5 py-1 rounded-lg text-[10px] text-slate-300 text-center">
-                    💡 Arrastra con el dedo los <strong className="text-emerald-400">4 puntos verdes</strong> para encajar el mástil en tu cámara
+                  <div className="bg-slate-950/85 border border-slate-800/90 px-2.5 py-1 rounded-lg text-[10px] text-slate-300 text-center">
+                    💡 Sitúa la cámara a <strong className="text-cyan-300">70–90 cm</strong> (máx 70% del ancho), arrastra los <strong className="text-emerald-400">4 pines verdes</strong> o pulsa <strong className="text-amber-300">Recalibrar</strong>
                   </div>
                 </div>
               </div>
