@@ -70,7 +70,7 @@ const GuitarTracker: React.FC = () => {
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedVideoId, setSelectedVideoId] = useState<string>('');
   const [selectedAudioId, setSelectedAudioId] = useState<string>('');
-  const [cameraFacingMode, setCameraFacingMode] = useState<'user' | 'environment'>('environment');
+  const [cameraFacingMode, setCameraFacingMode] = useState<'user' | 'environment'>('user');
 
   const [cameraActive, setCameraActive] = useState(false);
   const [micActive, setMicActive] = useState(false);
@@ -90,7 +90,7 @@ const GuitarTracker: React.FC = () => {
 
   // --- Opciones de Visión AR ---
   const [showKeypointsHud, setShowKeypointsHud] = useState<boolean>(true);
-  const [mirrorCamera, setMirrorCamera] = useState<boolean>(false);
+  const [mirrorCamera, setMirrorCamera] = useState<boolean>(true);
   const [invertStrings, setInvertStrings] = useState<boolean>(false);
   const [draggingKeypoint, setDraggingKeypoint] = useState<keyof NeckKeypoints | null>(null);
   const [hoveredKeypoint, setHoveredKeypoint] = useState<keyof NeckKeypoints | null>(null);
@@ -182,7 +182,7 @@ const GuitarTracker: React.FC = () => {
     dspEngineRef.current = new GuitarAudioDspEngine();
     visionEngineRef.current = new GuitarVisionArEngine();
     visionEngineRef.current.showVisionDebug = true;
-    visionEngineRef.current.mirrorVideo = false;
+    visionEngineRef.current.mirrorVideo = true;
 
     vstBridgeRef.current = new GuitarVstBridge();
     vstBridgeRef.current.setOnExternalNote((midi) => {
@@ -221,8 +221,8 @@ const GuitarTracker: React.FC = () => {
     return generateFretboardMatrix(tuningId, totalFrets, rootIndex, scaleId, boxFilter);
   }, [tuningId, totalFrets, rootIndex, scaleId, boxFilter]);
 
-  // Activar / Desactivar Cámara (Respeta la orientación nativa vertical u horizontal del celular)
-  const startCameraStream = async (facing: 'user' | 'environment', customDeviceId?: string) => {
+  // Activar / Desactivar Cámara (Cámara Frontal por defecto: facingMode: 'user', 1280x720)
+  const startCameraStream = async (facing: 'user' | 'environment' = 'user', customDeviceId?: string) => {
     setCameraError(null);
     if (videoRef.current && videoRef.current.srcObject) {
       const oldStream = videoRef.current.srcObject as MediaStream;
@@ -232,14 +232,11 @@ const GuitarTracker: React.FC = () => {
 
     try {
       let stream: MediaStream;
-      const isPortrait = typeof window !== 'undefined' && window.innerHeight > window.innerWidth;
 
       try {
         const videoConstraints: MediaTrackConstraints = customDeviceId
-          ? { deviceId: { exact: customDeviceId } }
-          : isPortrait
-          ? { facingMode: { ideal: facing } }
-          : { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } };
+          ? { deviceId: { exact: customDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+          : { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } };
 
         stream = await navigator.mediaDevices.getUserMedia({
           video: videoConstraints,
@@ -247,7 +244,7 @@ const GuitarTracker: React.FC = () => {
         });
       } catch {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: facing },
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
           audio: false,
         });
       }
