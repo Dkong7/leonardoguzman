@@ -304,6 +304,7 @@ const GuitarTracker: React.FC = () => {
         await requestWakeLock();
         const shouldMirror = facing === 'user' && !customDeviceId;
         setMirrorCamera(shouldMirror);
+        visionEngineRef.current?.startCalibration();
       }
 
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -718,14 +719,24 @@ const GuitarTracker: React.FC = () => {
               </span>
             </button>
 
-            {/* 4. Botón Recalibrar Mástil (Limpia parches basura / tatuajes y restaura pose limpia) */}
+            {/* 4. Botón Recalibrar Mástil (Inicia Calibración Vertical 1.5s o limpia parches) */}
             <button
-              onClick={() => visionEngineRef.current?.resetDefaultNeckPose()}
+              onClick={() => {
+                if (cameraActive) {
+                  visionEngineRef.current?.startCalibration();
+                } else {
+                  visionEngineRef.current?.resetDefaultNeckPose();
+                }
+              }}
               className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/60 text-amber-200 transition-all shadow-sm"
-              title="Limpiar parches de referencia y restaurar pose limpia del mástil"
+              title="Iniciar calibración vertical de 1.5s y limpiar parches de referencia"
             >
               <RefreshCw className="w-4 h-4 text-amber-300 shrink-0" />
-              <span className="truncate">Recalibrar</span>
+              <span className="truncate">
+                {visionTelemetry.engineState === 'calibrating_vertical'
+                  ? `Calibrando (${visionTelemetry.calibrationFrames || 0}/45)`
+                  : 'Recalibrar'}
+              </span>
             </button>
 
             {/* 5. Simular Guitarra (Demo Lick) */}
@@ -786,24 +797,27 @@ const GuitarTracker: React.FC = () => {
                     {visionTelemetry.fps} FPS
                   </span>
                   <span className="font-mono text-slate-300">
+                    Estado:{' '}
+                    <strong className="text-emerald-400 uppercase">
+                      {visionTelemetry.engineState || 'idle'}
+                    </strong>
+                  </span>
+                  <span className="font-mono text-slate-300">
                     Pose: <strong className="text-emerald-400">{visionTelemetry.confidence}%</strong>
                   </span>
                   <span className="font-mono text-slate-300">
                     Ángulo: <strong className="text-sky-300">{visionTelemetry.neckAngleDeg}°</strong>
-                  </span>
-                  <span className="font-mono text-slate-300 hidden sm:inline">
-                    DSP: <strong className="text-purple-300">{dspTelemetry.estimatedLatencyMs} ms</strong>
                   </span>
                 </div>
 
                 <div className="flex items-center gap-1.5">
                   {cameraActive && (
                     <button
-                      onClick={() => visionEngineRef.current?.autoScanNeckFromVideo(videoRef.current!)}
-                      className="px-2 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 font-semibold flex items-center gap-1"
+                      onClick={() => visionEngineRef.current?.startCalibration()}
+                      className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-300 font-bold flex items-center gap-1"
                     >
                       <Crosshair className="w-3 h-3" />
-                      <span>Auto-Mástil</span>
+                      <span>Calibrar Vertical</span>
                     </button>
                   )}
                   <button
@@ -831,10 +845,10 @@ const GuitarTracker: React.FC = () => {
                   <button
                     onClick={() => visionEngineRef.current?.resetDefaultNeckPose()}
                     className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 font-bold flex items-center gap-1"
-                    title="Limpiar parches basura y recalibrar pose del mástil"
+                    title="Limpiar parches basura y restaurar pose base del mástil"
                   >
                     <RefreshCw className="w-3 h-3 text-amber-300" />
-                    <span>Recalibrar</span>
+                    <span>Reset Pose</span>
                   </button>
                 </div>
               </div>

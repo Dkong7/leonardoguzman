@@ -19,12 +19,16 @@ export interface NeckKeypoints {
   nutBottom: Point2D;    // Cejuela borde inferior
 }
 
+export type EngineState = 'idle' | 'calibrating_vertical' | 'tracking';
+
 export interface VisionTelemetry {
   fps: number;
   confidence: number;
   neckAngleDeg: number;
   isFallbackFrozen: boolean;
   trackingMode: 'hybrid-auto' | 'kalman-locked' | 'manual-calibration';
+  engineState?: EngineState;
+  calibrationFrames?: number;
   keypoints: NeckKeypoints;
   homographyMatrix: number[]; // Matriz 3x3 aplanada (9 elementos)
 }
@@ -39,6 +43,7 @@ const KEYPOINT_KEYS: (keyof NeckKeypoints)[] = [
 const PATCH_SIZE = 24;
 const HALF_PATCH = 12; // 24x24 píxeles
 const SEARCH_RADIUS = 9; // Ventana de búsqueda 2D [-9..+9] en X e Y
+const REQUIRED_CALIBRATION_FRAMES = 45; // ~1.5 segundos continuos a 30-60 FPS
 
 /**
  * Solicita estrictamente la cámara frontal a 1280x720 por defecto
@@ -204,6 +209,16 @@ export class GuitarVisionArEngine {
   private lastFrameTime = performance.now();
   private smoothedFps = 60;
 
+  // 1. Estado de la máquina de estados del motor de visión ('idle' por defecto)
+  public state: EngineState = 'idle';
+  private calibrationHoldFrames = 0;
+  private calibCorridor = {
+    leftX: 0.45,
+    rightX: 0.55,
+    topY: 0.14,
+    bottomY: 0.86,
+  };
+
   public trackingMode: 'hybrid-auto' | 'kalman-locked' | 'manual-calibration' = 'hybrid-auto';
   public showVisionDebug = true;
   // 1. MODO ESPEJO ACTIVADO POR DEFECTO PARA CÁMARA FRONTAL
@@ -217,6 +232,21 @@ export class GuitarVisionArEngine {
     this.offscreenCtx = this.offscreenCanvas.getContext('2d', { willReadFrequently: true });
     this.grayBuffer = new Uint8Array(this.procWidth * this.procHeight);
     this.resetKalmanToCurrent();
+  }
+
+  /**
+   * 2. Inicia la fase de calibración inicial vertical ('calibrating_vertical')
+   * limpiando los parches previos y reiniciando el contador de 45 frames continuos.
+   */
+  public startCalibration() {
+    this.state = 'calibrating_vertical';
+    this.calibrationHoldFrames = 0;
+    this.isFallbackFrozen = false;
+    this.trackingConfidence = 0.5;
+    for (const key of KEYPOINT_KEYS) {
+      this.templates[key].fill(0);
+      this.templateInitialized[key] = false;
+    }
   }
 
   private resetKalmanToCurrent() {
@@ -253,6 +283,7 @@ export class GuitarVisionArEngine {
       this.templateInitialized[key] = false;
     }
 
+    this.state = 'tracking';
     this.trackingConfidence = 0.98;
     this.isFallbackFrozen = false;
   }
@@ -617,6 +648,7 @@ export class GuitarVisionArEngine {
       this.capturePatchTemplate(key, this.anchorQuad[key]);
     }
 
+    this.state = 'tracking';
     this.trackingConfidence = 0.96;
     this.isFallbackFrozen = false;
     return true;
@@ -817,6 +849,224 @@ export class GuitarVisionArEngine {
   }
 
   /**
+   * 4. FASE DE CALIBRACIÓN INICIAL VERTICAL (detectVerticalNeck):
+   * - Procesa el frame en escala de grises.
+   * - Suma los gradientes verticales (Sobel X) proyectados sobre el eje X (Perfil de proyección 1D)
+   *   para encontrar las dos líneas paralelas del mástil sostenido verticalmente.
+   * - Si detecta el mástil verticalmente con confianza, dibuja un contorno/rectángulo verde brillante
+   *   sobre el área detectada en el video.
+   * - Exige mantener la posición durante 45 frames (~1.5 segundos) continuos.
+   * - Al llegar a 45 frames, calcula automáticamente nutTop, nutBottom, bridgeTop, bridgeBottom
+   *   a lo largo de ese corredor vertical, dispara capturePatchTemplate() para los 4 puntos
+   *   y cambia el estado a 'tracking'.
+   */
+  public detectVerticalNeck(
+    ctx: CanvasRenderingContext2D,
+    canvasWidth: number,
+    canvasHeight: number,
+    video: HTMLVideoElement | null
+  ): boolean {
+    if (!video || video.readyState < 2 || !this.captureGrayscaleFrame(video)) {
+      return false;
+    }
+
+    const w = this.procWidth;
+    const h = this.procHeight;
+    const gray = this.grayBuffer;
+
+    const topRow = Math.floor(h * 0.14);
+    const bottomRow = Math.floor(h * 0.86);
+    const minSearchX = Math.floor(w * 0.18);
+    const maxSearchX = Math.floor(w * 0.82);
+
+    // 1. Perfil de proyección 1D sobre el eje X sumando gradientes verticales |Sobel X|
+    const rawProfileX = new Float32Array(w);
+
+    for (let y = topRow; y <= bottomRow; y++) {
+      const row = y * w;
+      for (let x = minSearchX - 1; x <= maxSearchX + 1; x++) {
+        const idx = row + x;
+        // Operador Sobel X 3x3 (responde a bordes verticales como los cantos del mástil y cuerdas)
+        const gx =
+          -gray[idx - w - 1] +
+          gray[idx - w + 1] -
+          2 * gray[idx - 1] +
+          2 * gray[idx + 1] -
+          gray[idx + w - 1] +
+          gray[idx + w + 1];
+
+        rawProfileX[x] += Math.abs(gx);
+      }
+    }
+
+    // Suavizado 1D [1, 2, 1] / 4 para consolidar los dos picos de los bordes del diapasón
+    const profileX = new Float32Array(w);
+    let totalProfileEnergy = 0;
+    const searchSpan = maxSearchX - minSearchX + 1;
+
+    for (let x = minSearchX; x <= maxSearchX; x++) {
+      const smoothed = (rawProfileX[x - 1] + 2 * rawProfileX[x] + rawProfileX[x + 1]) * 0.25;
+      profileX[x] = smoothed;
+      totalProfileEnergy += smoothed;
+    }
+
+    const meanProfileEnergy = totalProfileEnergy / Math.max(1, searchSpan);
+
+    // 2. Buscar el par de líneas verticales paralelas (leftX, rightX) con separación de mástil real
+    const minNeckWidthPx = Math.max(14, Math.floor(w * 0.05));
+    const maxNeckWidthPx = Math.floor(w * 0.19);
+    const centerFrameX = w * 0.5;
+
+    let bestScore = -Infinity;
+    let bestLeftX = Math.floor(w * 0.45);
+    let bestRightX = Math.floor(w * 0.55);
+
+    for (let lx = minSearchX; lx <= maxSearchX - minNeckWidthPx; lx++) {
+      const leftVal = profileX[lx];
+      if (leftVal < meanProfileEnergy * 0.9) continue;
+
+      const maxRx = Math.min(maxSearchX, lx + maxNeckWidthPx);
+      for (let rx = lx + minNeckWidthPx; rx <= maxRx; rx++) {
+        const rightVal = profileX[rx];
+        if (rightVal < meanProfileEnergy * 0.9) continue;
+
+        const midX = (lx + rx) * 0.5;
+        // Penalización suave por alejarse del centro óptico para evitar marcos de puertas en los bordes
+        const centerBias = 1 - (Math.abs(midX - centerFrameX) / (w * 0.5)) * 0.32;
+        // Simetría de intensidad entre borde izquierdo y derecho del mástil
+        const balance = 1 - Math.abs(leftVal - rightVal) / (leftVal + rightVal + 1e-3) * 0.35;
+
+        const pairScore = (leftVal + rightVal) * 0.5 * centerBias * balance;
+        if (pairScore > bestScore) {
+          bestScore = pairScore;
+          bestLeftX = lx;
+          bestRightX = rx;
+        }
+      }
+    }
+
+    const edgeConfidenceRatio = bestScore / Math.max(1, meanProfileEnergy);
+    const isDetected = edgeConfidenceRatio > 1.28 && bestScore > 2600;
+
+    if (isDetected) {
+      const normLeft = bestLeftX / w;
+      const normRight = bestRightX / w;
+
+      // Suavizar el corredor vertical detectado
+      this.calibCorridor.leftX = this.calibCorridor.leftX * 0.7 + normLeft * 0.3;
+      this.calibCorridor.rightX = this.calibCorridor.rightX * 0.7 + normRight * 0.3;
+      this.calibCorridor.topY = 0.14;
+      this.calibCorridor.bottomY = 0.86;
+
+      this.calibrationHoldFrames = Math.min(
+        REQUIRED_CALIBRATION_FRAMES,
+        this.calibrationHoldFrames + 1
+      );
+      this.trackingConfidence = Math.min(0.99, 0.55 + (this.calibrationHoldFrames / REQUIRED_CALIBRATION_FRAMES) * 0.44);
+    } else {
+      this.calibrationHoldFrames = Math.max(0, this.calibrationHoldFrames - 2);
+      this.trackingConfidence = Math.max(0.25, this.trackingConfidence - 0.03);
+    }
+
+    // 3. Dibujar contorno/rectángulo verde brillante sobre el área detectada en el video
+    const rectX = this.calibCorridor.leftX * canvasWidth;
+    const rectY = this.calibCorridor.topY * canvasHeight;
+    const rectW = (this.calibCorridor.rightX - this.calibCorridor.leftX) * canvasWidth;
+    const rectH = (this.calibCorridor.bottomY - this.calibCorridor.topY) * canvasHeight;
+    const progress = this.calibrationHoldFrames / REQUIRED_CALIBRATION_FRAMES;
+
+    ctx.save();
+    if (isDetected || this.calibrationHoldFrames > 0) {
+      ctx.shadowColor = '#00ff66';
+      ctx.shadowBlur = 18;
+      ctx.strokeStyle = '#00ff66';
+      ctx.lineWidth = 3.5;
+      ctx.strokeRect(rectX, rectY, rectW, rectH);
+
+      ctx.fillStyle = 'rgba(0, 255, 102, 0.16)';
+      ctx.fillRect(rectX, rectY, rectW, rectH);
+    } else {
+      // Guía central punteada cuando espera que el usuario coloque el mástil verticalmente
+      const guideW = canvasWidth * 0.1;
+      const guideX = (canvasWidth - guideW) * 0.5;
+      ctx.setLineDash([6, 6]);
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.75)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(guideX, rectY, guideW, rectH);
+    }
+
+    // Barra de progreso de los 45 frames (~1.5s) en pantalla
+    const hudW = Math.min(360, canvasWidth * 0.86);
+    const hudH = 58;
+    const hudX = (canvasWidth - hudW) * 0.5;
+    const hudY = canvasHeight - hudH - 36;
+
+    ctx.shadowBlur = 0;
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(7, 9, 20, 0.9)';
+    ctx.strokeStyle = isDetected ? '#00ff66' : 'rgba(56, 189, 248, 0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.fillRect(hudX, hudY, hudW, hudH);
+    ctx.strokeRect(hudX, hudY, hudW, hudH);
+
+    ctx.fillStyle = isDetected ? '#00ff66' : '#e2e8f0';
+    ctx.font = 'bold 12px Inter, monospace, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(
+      `CALIBRACIÓN VERTICAL: ${this.calibrationHoldFrames}/${REQUIRED_CALIBRATION_FRAMES} FRAMES (${Math.round(progress * 100)}%)`,
+      canvasWidth * 0.5,
+      hudY + 21
+    );
+
+    // Barra interior de llenado
+    const barW = hudW - 28;
+    const barX = hudX + 14;
+    const barY = hudY + 34;
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
+    ctx.fillRect(barX, barY, barW, 12);
+    ctx.fillStyle = '#00ff66';
+    ctx.fillRect(barX, barY, barW * progress, 12);
+    ctx.restore();
+
+    // 4. Al llegar a 45 frames continuos, fijar los 4 puntos a lo largo del corredor vertical,
+    // capturar los parches de referencia 24x24 y pasar a estado 'tracking'
+    if (this.calibrationHoldFrames >= REQUIRED_CALIBRATION_FRAMES) {
+      const centerX = (this.calibCorridor.leftX + this.calibCorridor.rightX) * 0.5;
+      const halfWidth = Math.max(
+        0.028,
+        (this.calibCorridor.rightX - this.calibCorridor.leftX) * 0.5
+      );
+      const nutHalfW = halfWidth * 0.9;     // Cejuela arriba (ligeramente más angosta)
+      const bridgeHalfW = halfWidth * 1.06; // Puente/Traste 24 abajo (ligeramente más ancho)
+      const topY = this.calibCorridor.topY;
+      const bottomY = this.calibCorridor.bottomY;
+
+      // Orden horario convexo (nutTop -> bridgeTop -> bridgeBottom -> nutBottom)
+      // donde nutTop->bridgeTop y nutBottom->bridgeBottom son los dos cantos largos del mástil
+      this.anchorQuad = {
+        nutTop: { x: Math.min(0.95, centerX + nutHalfW), y: topY },
+        bridgeTop: { x: Math.min(0.95, centerX + bridgeHalfW), y: bottomY },
+        bridgeBottom: { x: Math.max(0.05, centerX - bridgeHalfW), y: bottomY },
+        nutBottom: { x: Math.max(0.05, centerX - nutHalfW), y: topY },
+      };
+
+      this.lastValidQuad = this.getNormalizedKeypoints();
+      this.resetKalmanToCurrent();
+
+      for (const key of KEYPOINT_KEYS) {
+        this.capturePatchTemplate(key, this.anchorQuad[key]);
+      }
+
+      this.trackingConfidence = 0.98;
+      this.isFallbackFrozen = false;
+      this.state = 'tracking';
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Renderiza el frame de video + el overlay AR con proyección homográfica 3D del diapasón
    */
   public renderArFrame(
@@ -900,8 +1150,37 @@ export class GuitarVisionArEngine {
       }
     }
 
-    // 2. Actualizar pose 2D (SAD 24x24 + Filtro de Kalman) y comprobar Fallback
-    const normQuad = this.updateTrackingStep(video, dt);
+    // 2. Máquina de estados del motor: 'idle' | 'calibrating_vertical' | 'tracking'
+    if (this.state === 'calibrating_vertical') {
+      this.detectVerticalNeck(ctx, canvasWidth, canvasHeight, video);
+
+      const calibQuad = this.getNormalizedKeypoints();
+      const calibScreenQuad: NeckKeypoints = {
+        nutTop: { x: calibQuad.nutTop.x * canvasWidth, y: calibQuad.nutTop.y * canvasHeight },
+        bridgeTop: { x: calibQuad.bridgeTop.x * canvasWidth, y: calibQuad.bridgeTop.y * canvasHeight },
+        bridgeBottom: { x: calibQuad.bridgeBottom.x * canvasWidth, y: calibQuad.bridgeBottom.y * canvasHeight },
+        nutBottom: { x: calibQuad.nutBottom.x * canvasWidth, y: calibQuad.nutBottom.y * canvasHeight },
+      };
+
+      return {
+        fps: Math.round(this.smoothedFps),
+        confidence: Math.round(this.trackingConfidence * 100),
+        neckAngleDeg: 90,
+        isFallbackFrozen: false,
+        trackingMode: this.trackingMode,
+        engineState: this.state,
+        calibrationFrames: this.calibrationHoldFrames,
+        keypoints: calibQuad,
+        homographyMatrix: computeUnitSquareHomography(calibScreenQuad),
+      };
+    }
+
+    // Si está en 'tracking', ejecuta updateTrackingStep (SAD 24x24 px + Kalman).
+    // Si está en 'idle', mantiene la pose base sin ejecutar SAD hasta calibrar o mover un pin.
+    const normQuad =
+      this.state === 'tracking'
+        ? this.updateTrackingStep(video, dt)
+        : this.getNormalizedKeypoints();
 
     const screenQuad: NeckKeypoints = {
       nutTop: { x: normQuad.nutTop.x * canvasWidth, y: normQuad.nutTop.y * canvasHeight },
@@ -1167,6 +1446,8 @@ export class GuitarVisionArEngine {
       neckAngleDeg,
       isFallbackFrozen: this.isFallbackFrozen,
       trackingMode: this.trackingMode,
+      engineState: this.state,
+      calibrationFrames: this.calibrationHoldFrames,
       keypoints: normQuad,
       homographyMatrix: H,
     };
