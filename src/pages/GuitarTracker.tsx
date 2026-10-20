@@ -25,6 +25,7 @@ import {
   Activity,
   SwitchCamera,
   Smartphone,
+  Lock,
 } from 'lucide-react';
 
 import {
@@ -53,6 +54,9 @@ import {
 } from '../lib/guitarTracker/vstBridgeEngine';
 
 const INLAY_FRETS = new Set([3, 5, 7, 9, 12, 15, 17, 19, 21, 24]);
+
+// Re-renderizar este componente a 60 Hz roba al hilo principal el tiempo que necesita el flujo óptico.
+const UI_TELEMETRY_INTERVAL_MS = 66;
 
 const GuitarTracker: React.FC = () => {
   // --- Motores instanciados ---
@@ -161,6 +165,12 @@ const GuitarTracker: React.FC = () => {
 
   // Cursor temporal (barra amarilla vertical en el diagrama 2D)
   const [cursorFretPosition, setCursorFretPosition] = useState<number>(4);
+  const cursorFretRef = useRef<number>(4);
+  const lastUiUpdateRef = useRef<number>(0);
+
+  useEffect(() => {
+    cursorFretRef.current = cursorFretPosition;
+  }, [cursorFretPosition]);
 
   // Dimensiones dinámicas del Canvas AR (Vertical en celular vertical, Horizontal en PC/ horizontal)
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>(() => {
@@ -413,29 +423,38 @@ const GuitarTracker: React.FC = () => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
 
-    if (dsp) {
-      const telemetry = dsp.processFrame();
-      setDspTelemetry(telemetry);
+    const now = performance.now();
+    const pushUi = now - lastUiUpdateRef.current >= UI_TELEMETRY_INTERVAL_MS;
+    if (pushUi) lastUiUpdateRef.current = now;
 
-      const candidates = identifyScaleFromChroma(telemetry.accumulatedChroma);
-      setScaleCandidates(candidates);
+    // processFrame() avanza YIN y el decaimiento del cromagrama: debe llamarse una sola vez por frame.
+    const telemetry = dsp ? dsp.processFrame() : null;
 
-      if (visualMode === 'reactive' && candidates.length > 0 && candidates[0].score > 0.52) {
-        const top = candidates[0];
-        setRootIndex(top.rootIndex);
-        setScaleId(top.scaleId);
+    if (telemetry) {
+      if (pushUi) {
+        setDspTelemetry(telemetry);
+
+        const candidates = identifyScaleFromChroma(telemetry.accumulatedChroma);
+        setScaleCandidates(candidates);
+
+        if (visualMode === 'reactive' && candidates.length > 0 && candidates[0].score > 0.52) {
+          const top = candidates[0];
+          setRootIndex(top.rootIndex);
+          setScaleId(top.scaleId);
+        }
       }
 
       if (telemetry.currentNote) {
         const activeMidi = telemetry.currentNote.midi;
-        let bestFret = cursorFretPosition;
+        const cursorFret = cursorFretRef.current;
+        let bestFret = cursorFret;
         let minDistance = 999;
 
         for (let s = 0; s < 6; s++) {
           for (let f = 0; f <= totalFrets; f++) {
             const node = fretMatrix[s]?.[f];
             if (node && node.midi === activeMidi) {
-              const dist = Math.abs(f - cursorFretPosition);
+              const dist = Math.abs(f - cursorFret);
               if (dist < minDistance) {
                 minDistance = dist;
                 bestFret = f;
@@ -443,7 +462,8 @@ const GuitarTracker: React.FC = () => {
             }
           }
         }
-        setCursorFretPosition((prev) => prev * 0.7 + bestFret * 0.3);
+        cursorFretRef.current = cursorFret * 0.7 + bestFret * 0.3;
+        if (pushUi) setCursorFretPosition(cursorFretRef.current);
 
         if (
           visualMode === 'guided' &&
@@ -478,16 +498,16 @@ const GuitarTracker: React.FC = () => {
           cameraActive ? video : null,
           fretMatrix,
           totalFrets,
-          dsp?.processFrame().currentNote || null,
+          telemetry?.currentNote ?? null,
           visualMode,
           boxFilter,
           hoveredKeypoint || draggingKeypoint
         );
-        setVisionTelemetry(vTelemetry);
+        if (pushUi) setVisionTelemetry(vTelemetry);
       }
     }
 
-    if (vstBridgeRef.current) {
+    if (pushUi && vstBridgeRef.current) {
       setVstStatus(vstBridgeRef.current.getStatus());
     }
 
@@ -500,7 +520,6 @@ const GuitarTracker: React.FC = () => {
     boxFilter,
     hoveredKeypoint,
     draggingKeypoint,
-    cursorFretPosition,
     rootIndex,
     scaleId,
   ]);
@@ -808,9 +827,30 @@ const GuitarTracker: React.FC = () => {
                   <span className="font-mono text-slate-300">
                     Ángulo: <strong className="text-sky-300">{visionTelemetry.neckAngleDeg}°</strong>
                   </span>
+                  {visionTelemetry.engineState === 'tracking' && visionTelemetry.featuresA !== undefined && (
+                    <span
+                      className="font-mono text-slate-300"
+                      title="Puntos Lucas-Kanade vivos alrededor de la cejuela (A) y del traste 12 (B)"
+                    >
+                      LK:{' '}
+                      <strong className={visionTelemetry.isFallbackFrozen ? 'text-amber-300' : 'text-emerald-400'}>
+                        {visionTelemetry.featuresA}/{visionTelemetry.featuresB}
+                      </strong>
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-1.5">
+                  {cameraActive && (
+                    <button
+                      onClick={() => visionEngineRef.current?.lockTracking()}
+                      className="px-2 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/50 text-cyan-200 font-bold flex items-center gap-1"
+                      title="Coloca los pines sobre el mástil y fija el flujo óptico en la cejuela y el traste 12"
+                    >
+                      <Lock className="w-3 h-3" />
+                      <span>Fijar Tracking</span>
+                    </button>
+                  )}
                   {cameraActive && (
                     <button
                       onClick={() => visionEngineRef.current?.startCalibration()}
@@ -934,7 +974,7 @@ const GuitarTracker: React.FC = () => {
                 {/* Guía táctil e indicación de distancia óptica (70-90 cm) inferior en el canvas */}
                 <div className="absolute bottom-1.5 inset-x-2 pointer-events-none flex justify-center">
                   <div className="bg-slate-950/85 border border-slate-800/90 px-2.5 py-1 rounded-lg text-[10px] text-slate-300 text-center">
-                    💡 Sitúa la cámara a <strong className="text-cyan-300">70–90 cm</strong> (máx 70% del ancho), arrastra los <strong className="text-emerald-400">4 pines verdes</strong> o pulsa <strong className="text-amber-300">Recalibrar</strong>
+                    💡 Sitúa la cámara a <strong className="text-cyan-300">70–90 cm</strong>, arrastra los <strong className="text-emerald-400">4 pines</strong> a la cejuela y al último traste y pulsa <strong className="text-cyan-300">Fijar Tracking</strong> (o <strong className="text-amber-300">Recalibrar</strong>)
                   </div>
                 </div>
               </div>
