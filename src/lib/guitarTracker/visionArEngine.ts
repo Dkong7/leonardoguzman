@@ -78,7 +78,6 @@ const SHI_TOMASI_MIN_EIGEN = 6;
 const SHI_TOMASI_QUALITY = 0.05;
 const REPLENISH_INTERVAL_FRAMES = 6;
 const URGENT_RESEED_INTERVAL_FRAMES = 2;
-const LOST_RESEED_INTERVAL_FRAMES = 8;
 const MAX_OUTLIER_STRIKES = 3;
 
 const RANSAC_ITERATIONS = 40;
@@ -97,6 +96,29 @@ const KEYFRAME_CHECK_INTERVAL = 2;
 const KEYFRAME_GAIN = 0.3;
 const KEYFRAME_MIN_SCALE = 0.65;
 const KEYFRAME_MAX_SCALE = 1.6;
+
+// Relocalización tras perder el consenso: la franja del mástil se busca por ZNCC en el nivel RELOC_LEVEL.
+// Resembrar en la pose congelada fijaría las nubes sobre el fondo.
+const RELOC_LEVEL = 2;
+const RELOC_SEARCH_RADIUS = 24; // px del nivel RELOC_LEVEL (±96 px del buffer de proceso)
+const RELOC_MIN_SAMPLES = 48;
+const RELOC_MAX_SAMPLES = 1536;
+const RELOC_MIN_ZNCC = 0.6;
+// -15°..15° cada 2.5°: la búsqueda gruesa usa los índices pares (cada 5°) y afina con los vecinos
+const RELOC_ROTATIONS = Array.from({ length: 13 }, (_, i) => ((i - 6) * 2.5 * Math.PI) / 180);
+const RELOC_CENTER_ROTATION = 6; // índice de 0°
+const RELOC_SCALES = [0.9, 0.95, 1, 1.05, 1.1];
+const RELOC_CENTER_SCALE = 2;
+const RELOC_VERIFY_REACH = 2.5; // alcance de las pasadas de afinado contra el keyframe (en múltiplos de tau)
+// Tras relocalizar (a menudo con la guitarra aún en movimiento) un consenso débil vuelve a dar el mástil por perdido
+const RELOC_PROBATION_FRAMES = 10;
+const RELOC_PROBATION_MIN_INLIERS = 6;
+// Tras relocalizar, la pose se recomprueba por ZNCC durante un tiempo (una nube resembrada sobre una pose aún
+// desviada fija el error). No se hace siempre: la plantilla solo modela similitud y con escorzo fuerte confunde.
+const POSE_RECHECK_WINDOW = 90; // fotogramas de video tras cada relocalización
+const POSE_RECHECK_INTERVAL = 15;
+const POSE_RECHECK_RADIUS = 6; // px del nivel RELOC_LEVEL (±24 px del buffer de proceso)
+const POSE_RECHECK_MARGIN = 0.03; // mejora mínima de ZNCC sobre la pose actual para corregirla
 
 const DEFAULT_NUT_HALF_WIDTH_RATIO = 0.072; // 43 mm / 2 sobre 324 mm (cejuela→traste 12, escala 648 mm)
 const DEFAULT_END_HALF_WIDTH_RATIO = 0.092;
@@ -1120,6 +1142,37 @@ export function estimateNeckAxis(
   return { cx: base + 0.5 * mRefined, yRef, slope, halfWidth: half * cosT };
 }
 
+/** Franja del mástil para relocalizar, en el nivel RELOC_LEVEL, con sus índices girados por hipótesis */
+interface RelocTemplate {
+  valid: boolean;
+  count: number;
+  dx: Float32Array;
+  dy: Float32Array;
+  val: Float32Array;
+  lcx: number; // centro de la franja (px del nivel RELOC_LEVEL)
+  lcy: number;
+  cx: number; // centro de la franja (px del buffer de proceso)
+  cy: number;
+  a: Point2D; // anclas de la pose base de la plantilla
+  b: Point2D;
+}
+
+function createRelocTemplate(): RelocTemplate {
+  return {
+    valid: false,
+    count: 0,
+    dx: new Float32Array(RELOC_MAX_SAMPLES),
+    dy: new Float32Array(RELOC_MAX_SAMPLES),
+    val: new Float32Array(RELOC_MAX_SAMPLES),
+    lcx: 0,
+    lcy: 0,
+    cx: 0,
+    cy: 0,
+    a: { x: 0, y: 0 },
+    b: { x: 0, y: 0 },
+  };
+}
+
 // =====================================================================
 // RASTREADOR DE MÁSTIL (sin DOM): pirámides, nubes de puntos, RANSAC y cuerpo rígido
 // =====================================================================
@@ -1192,6 +1245,22 @@ export class LucasKanadeNeckTracker {
   private readonly kfSortX = new Float32Array(MAX_FEATURES);
   private readonly kfSortY = new Float32Array(MAX_FEATURES);
 
+  // Relocalización: plantilla del keyframe (nivel RELOC_LEVEL) colocada en la última pose con consenso
+  public relocalizations = 0;
+  public poseCorrections = 0;
+  private keyImgL2 = new Float32Array(0);
+  private hasRelocRef = false;
+  private probationFrames = 0;
+  private framesSinceRecheck = 0;
+  private recheckFramesLeft = 0;
+  private readonly relocHit = { score: -2, r: 0, s: 0, x: 0, y: 0 };
+  private readonly relocIdx = new Int32Array(RELOC_MAX_SAMPLES);
+  private readonly relocBox = new Int32Array(4);
+  private relocA: Point2D = { x: 0, y: 0 };
+  private relocB: Point2D = { x: 0, y: 0 };
+  // [0]: en la última pose con consenso; [1]: en la pose del keyframe (donde suele volver la guitarra)
+  private readonly relocTemplates = [createRelocTemplate(), createRelocTemplate()];
+
   public get procWidth() {
     return this.width;
   }
@@ -1219,6 +1288,7 @@ export class LucasKanadeNeckTracker {
     this.currGrayBuffer = createPyramid(width, height, PYRAMID_LEVELS);
     this.pyramidScratch = new Float32Array(width * height);
     this.keyImg = new Float32Array(width * height);
+    this.keyImgL2 = new Float32Array(this.prevGrayBuffer[RELOC_LEVEL].img.length);
     this.invalidateFrames();
   }
 
@@ -1233,6 +1303,7 @@ export class LucasKanadeNeckTracker {
     this.featureCount = 0;
     this.isLocked = false;
     this.isLost = false;
+    this.hasRelocRef = false;
     this.velAx = this.velAy = this.velBx = this.velBy = 0;
   }
 
@@ -1286,9 +1357,11 @@ export class LucasKanadeNeckTracker {
     this.referenceDist = d;
     this.isLocked = true;
     this.isLost = false;
+    this.hasRelocRef = false;
     this.lostFrames = 0;
 
     this.keyImg.set(this.currGrayBuffer[0].img);
+    this.keyImgL2.set(this.currGrayBuffer[RELOC_LEVEL].img);
     this.keyCount = this.featureCount;
     this.keyX.set(this.fx);
     this.keyY.set(this.fy);
@@ -1296,6 +1369,8 @@ export class LucasKanadeNeckTracker {
     this.keyA = { x: this.anchorA.x, y: this.anchorA.y };
     this.keyB = { x: this.anchorB.x, y: this.anchorB.y };
     this.framesSinceKeyCheck = 0;
+    this.probationFrames = 0;
+    this.recheckFramesLeft = 0;
 
     this.inliersA = this.countCloud(CLOUD_A);
     this.inliersB = this.countCloud(CLOUD_B);
@@ -1729,21 +1804,25 @@ export class LucasKanadeNeckTracker {
    * Corrección de deriva: re-empareja los puntos del keyframe (fijados al pulsar "Fijar Tracking")
    * contra el fotograma actual con plantillas giradas/escaladas, y empuja suavemente cada ancla hacia
    * la mediana de esos desplazamientos. Sin esto, el error subpíxel del flujo óptico se acumula.
+   * `reach` amplía el desplazamiento aceptado (relocalización). Devuelve cuántas nubes se verificaron,
+   * o -1 si la pose actual no es comparable con el keyframe (escala fuera de rango).
    */
-  private correctDriftWithKeyframe(tau: number) {
-    if (this.keyCount === 0) return;
+  private correctDriftWithKeyframe(tau: number, gain = KEYFRAME_GAIN, reach = 1): number {
+    if (this.keyCount === 0) return -1;
     const T = this.simTry;
     if (!similarityFromPairs(
       T,
       this.keyA.x, this.keyA.y, this.keyB.x, this.keyB.y,
       this.anchorA.x, this.anchorA.y, this.anchorB.x, this.anchorB.y
-    )) return;
+    )) return -1;
     const sT = Math.hypot(T.a, T.b);
-    if (sT < KEYFRAME_MIN_SCALE || sT > KEYFRAME_MAX_SCALE) return;
+    if (sT < KEYFRAME_MIN_SCALE || sT > KEYFRAME_MAX_SCALE) return -1;
     const curr = this.currGrayBuffer[0];
     const out = this.lkOut;
-    const maxOffsetSq = tau * tau * 1.5;
+    const maxOffsetSq = tau * tau * 1.5 * reach * reach;
+    const maxStep = tau * reach;
     const local = this.simLocal;
+    let verified = 0;
 
     for (let cloud = CLOUD_A; cloud <= CLOUD_B; cloud++) {
       // Dos pasadas: la 2ª re-muestrea las plantillas con la escala/rotación local de esta nube
@@ -1831,19 +1910,304 @@ export class LucasKanadeNeckTracker {
         ok = true;
       }
       if (!ok) continue;
+      verified++;
 
       const key = cloud === CLOUD_A ? this.keyA : this.keyB;
       const anchor = cloud === CLOUD_A ? this.anchorA : this.anchorB;
       let cx = local.a * key.x - local.b * key.y + local.tx - anchor.x;
       let cy = local.b * key.x + local.a * key.y + local.ty - anchor.y;
       const len = Math.hypot(cx, cy);
-      if (len > tau) {
-        cx *= tau / len;
-        cy *= tau / len;
+      if (len > maxStep) {
+        cx *= maxStep / len;
+        cy *= maxStep / len;
       }
-      anchor.x += cx * KEYFRAME_GAIN;
-      anchor.y += cy * KEYFRAME_GAIN;
+      anchor.x += cx * gain;
+      anchor.y += cy * gain;
     }
+    return verified;
+  }
+
+  /** Prepara las plantillas de relocalización con las anclas congeladas (última pose con consenso) */
+  private captureRelocReference() {
+    this.relocA = { x: this.anchorA.x, y: this.anchorA.y };
+    this.relocB = { x: this.anchorB.x, y: this.anchorB.y };
+    const [lastGood, atKey] = this.relocTemplates;
+    this.buildRelocTemplate(lastGood, this.anchorA, this.anchorB);
+    this.buildRelocTemplate(atKey, this.keyA, this.keyB);
+    this.hasRelocRef = lastGood.valid || atKey.valid;
+  }
+
+  /**
+   * Franja del mástil (algo más allá de cejuela→traste 12) colocada en la pose (a, b), con la apariencia del
+   * keyframe (nítido; el último fotograma bueno suele estar movido) remuestreada a esa pose.
+   */
+  private buildRelocTemplate(t: RelocTemplate, a: Point2D, b: Point2D) {
+    t.valid = false;
+    if (this.keyCount === 0) return;
+    const T = this.simTry;
+    if (!similarityFromPairs(T, this.keyA.x, this.keyA.y, this.keyB.x, this.keyB.y, a.x, a.y, b.x, b.y)) return;
+    const s2 = T.a * T.a + T.b * T.b;
+    const sT = Math.sqrt(s2);
+    if (sT < KEYFRAME_MIN_SCALE || sT > KEYFRAME_MAX_SCALE) return;
+
+    const L = this.currGrayBuffer[RELOC_LEVEL];
+    const w = L.width;
+    const h = L.height;
+    const scale = 1 << RELOC_LEVEL;
+    const inv = 1 / scale;
+    const ax = a.x * inv;
+    const ay = a.y * inv;
+    const dx = b.x * inv - ax;
+    const dy = b.y * inv - ay;
+    const d = Math.hypot(dx, dy);
+    if (d < 4) return;
+    const ux = dx / d;
+    const uy = dy / d;
+    const u0 = -0.15 * d;
+    const u1 = 1.1 * d;
+    const half = Math.max(2, this.halfWidthAt(0.5) * d * 0.9);
+    const step = Math.max(1, Math.ceil(Math.sqrt(((u1 - u0) * 2 * half) / RELOC_MAX_SAMPLES)));
+    const ex0 = ax + ux * u0;
+    const ex1 = ax + ux * u1;
+    const ey0 = ay + uy * u0;
+    const ey1 = ay + uy * u1;
+    const cx = 0.5 * (ex0 + ex1);
+    const cy = 0.5 * (ey0 + ey1);
+    const x0 = Math.floor(Math.min(ex0, ex1) - half);
+    const x1 = Math.ceil(Math.max(ex0, ex1) + half);
+    const y0 = Math.floor(Math.min(ey0, ey1) - half);
+    const y1 = Math.ceil(Math.max(ey0, ey1) + half);
+
+    let n = 0;
+    let sum = 0;
+    for (let y = y0; y <= y1 && n < RELOC_MAX_SAMPLES; y += step) {
+      for (let x = x0; x <= x1 && n < RELOC_MAX_SAMPLES; x += step) {
+        const rx = x - ax;
+        const ry = y - ay;
+        const along = rx * ux + ry * uy;
+        if (along < u0 || along > u1 || Math.abs(ry * ux - rx * uy) > half) continue;
+        // Punto equivalente en el keyframe (inversa de la similitud keyframe → pose base)
+        const px = x * scale - T.tx;
+        const py = y * scale - T.ty;
+        const qx = ((T.a * px + T.b * py) / s2) * inv;
+        const qy = ((T.a * py - T.b * px) / s2) * inv;
+        if (qx < 0 || qy < 0 || qx > w - 1.001 || qy > h - 1.001) continue;
+        const v = sampleBilinearClamped(this.keyImgL2, w, h, qx, qy);
+        t.dx[n] = x - cx;
+        t.dy[n] = y - cy;
+        t.val[n] = v;
+        sum += v;
+        n++;
+      }
+    }
+    if (n < RELOC_MIN_SAMPLES) return;
+    const mean = sum / n;
+    let norm = 0;
+    for (let k = 0; k < n; k++) {
+      const v = t.val[k] - mean;
+      t.val[k] = v;
+      norm += v * v;
+    }
+    if (norm < n * 4) return;
+    const invNorm = 1 / Math.sqrt(norm);
+    for (let k = 0; k < n; k++) t.val[k] *= invNorm;
+
+    t.count = n;
+    t.lcx = cx;
+    t.lcy = cy;
+    t.cx = cx * scale;
+    t.cy = cy * scale;
+    t.a = { x: a.x, y: a.y };
+    t.b = { x: b.x, y: b.y };
+    t.valid = true;
+  }
+
+  /** Índices enteros de la plantilla girada/escalada (hipótesis ri, si) alrededor del centro de la franja */
+  private prepareRelocHypothesis(t: RelocTemplate, ri: number, si: number) {
+    const w = this.currGrayBuffer[RELOC_LEVEL].width;
+    const c = Math.cos(RELOC_ROTATIONS[ri]) * RELOC_SCALES[si];
+    const sn = Math.sin(RELOC_ROTATIONS[ri]) * RELOC_SCALES[si];
+    const idx = this.relocIdx;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let k = 0; k < t.count; k++) {
+      const x = Math.round(t.lcx + c * t.dx[k] - sn * t.dy[k]);
+      const y = Math.round(t.lcy + sn * t.dx[k] + c * t.dy[k]);
+      idx[k] = y * w + x;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    this.relocBox[0] = minX;
+    this.relocBox[1] = maxX;
+    this.relocBox[2] = minY;
+    this.relocBox[3] = maxY;
+  }
+
+  /** ZNCC de la hipótesis preparada desplazada (ox, oy) px del nivel RELOC_LEVEL; -2 si se sale */
+  private relocScore(t: RelocTemplate, ox: number, oy: number): number {
+    const C = this.currGrayBuffer[RELOC_LEVEL];
+    const w = C.width;
+    const box = this.relocBox;
+    if (box[0] + ox < 0 || box[1] + ox > w - 1 || box[2] + oy < 0 || box[3] + oy > C.height - 1) return -2;
+    const img = C.img;
+    const n = t.count;
+    const idx = this.relocIdx;
+    const val = t.val;
+    const base = oy * w + ox;
+    let st = 0;
+    let si = 0;
+    let si2 = 0;
+    for (let k = 0; k < n; k++) {
+      const v = img[idx[k] + base];
+      st += val[k] * v;
+      si += v;
+      si2 += v * v;
+    }
+    const varI = si2 - (si * si) / n;
+    return varI > n * 1e-3 ? st / Math.sqrt(varI) : -1;
+  }
+
+  private scanRelocHypothesis(t: RelocTemplate, ri: number, si: number, x0: number, x1: number, y0: number, y1: number, step: number) {
+    this.prepareRelocHypothesis(t, ri, si);
+    const hit = this.relocHit;
+    for (let oy = y0; oy <= y1; oy += step) {
+      for (let ox = x0; ox <= x1; ox += step) {
+        const z = this.relocScore(t, ox, oy);
+        if (z > hit.score) {
+          hit.score = z;
+          hit.r = ri;
+          hit.s = si;
+          hit.x = ox;
+          hit.y = oy;
+        }
+      }
+    }
+  }
+
+  /**
+   * Mejor rotación × escala × desplazamiento (ZNCC) de la plantilla: rejilla gruesa (paso `step` px, rotación
+   * cada 5° hasta ±rotSpan índices, escala cada 10% hasta ±scaleSpan índices) y afinado de ±1 en todo.
+   * Deja el resultado en relocHit.
+   */
+  private searchRelocTemplate(
+    t: RelocTemplate, radius: number, rotSpan: number, scaleSpan: number, step: number
+  ): number {
+    const hit = this.relocHit;
+    hit.score = -2;
+    const rLo = Math.max(0, RELOC_CENTER_ROTATION - rotSpan);
+    const rHi = Math.min(RELOC_ROTATIONS.length - 1, RELOC_CENTER_ROTATION + rotSpan);
+    const sLo = Math.max(0, RELOC_CENTER_SCALE - scaleSpan);
+    const sHi = Math.min(RELOC_SCALES.length - 1, RELOC_CENTER_SCALE + scaleSpan);
+    for (let ri = rLo; ri <= rHi; ri += 2) {
+      for (let si = sLo; si <= sHi; si += 2) {
+        this.scanRelocHypothesis(t, ri, si, -radius, radius, -radius, radius, step);
+      }
+    }
+    if (hit.score < RELOC_MIN_ZNCC - 0.15) return hit.score;
+    const { r, s: sc, x, y } = hit;
+    for (let ri = Math.max(rLo, r - 1); ri <= Math.min(rHi, r + 1); ri++) {
+      for (let si = Math.max(sLo, sc - 1); si <= Math.min(sHi, sc + 1); si++) {
+        this.scanRelocHypothesis(t, ri, si, x - 1, x + 1, y - 1, y + 1, 1);
+      }
+    }
+    return hit.score;
+  }
+
+  /**
+   * Coloca las anclas según relocHit, las afina y confirma contra el keyframe a resolución completa (la
+   * búsqueda es a 1/4) y vuelve a sembrar las nubes. Si no se confirma, restaura (fallbackA, fallbackB).
+   */
+  private adoptRelocHit(t: RelocTemplate, tau: number, fallbackA: Point2D, fallbackB: Point2D): boolean {
+    const hit = this.relocHit;
+    this.prepareRelocHypothesis(t, hit.r, hit.s);
+    const parabola = (m: number, p: number) => {
+      if (m < -1 || p < -1) return 0;
+      const den = m - 2 * hit.score + p;
+      return den < -1e-6 ? clamp((0.5 * (m - p)) / den, -0.5, 0.5) : 0;
+    };
+    const subX = parabola(this.relocScore(t, hit.x - 1, hit.y), this.relocScore(t, hit.x + 1, hit.y));
+    const subY = parabola(this.relocScore(t, hit.x, hit.y - 1), this.relocScore(t, hit.x, hit.y + 1));
+    const scale = 1 << RELOC_LEVEL;
+    const shiftX = (hit.x + subX) * scale;
+    const shiftY = (hit.y + subY) * scale;
+    const c = Math.cos(RELOC_ROTATIONS[hit.r]) * RELOC_SCALES[hit.s];
+    const sn = Math.sin(RELOC_ROTATIONS[hit.r]) * RELOC_SCALES[hit.s];
+    const place = (p: Point2D): Point2D => {
+      const rx = p.x - t.cx;
+      const ry = p.y - t.cy;
+      return { x: t.cx + c * rx - sn * ry + shiftX, y: t.cy + sn * rx + c * ry + shiftY };
+    };
+    const restore = () => {
+      this.anchorA = { x: fallbackA.x, y: fallbackA.y };
+      this.anchorB = { x: fallbackB.x, y: fallbackB.y };
+      return false;
+    };
+
+    this.anchorA = place(t.a);
+    this.anchorB = place(t.b);
+    // Se exigen ambas nubes: con una sola, la rotación alrededor de esa ancla queda sin confirmar
+    let verified = 0;
+    for (let pass = 0; pass < 3; pass++) {
+      verified = this.correctDriftWithKeyframe(tau, 1, RELOC_VERIFY_REACH);
+      if (verified < 2) break;
+    }
+    if (verified === 2) verified = this.correctDriftWithKeyframe(tau, 1, 1);
+    if (verified < 2) return restore();
+
+    // Pose ya confirmada: las nubes se rehacen alrededor de ella (los puntos viejos pueden estar desplazados)
+    this.featureCount = 0;
+    this.seedCloud(CLOUD_A, FEATURES_PER_ANCHOR);
+    this.seedCloud(CLOUD_B, FEATURES_PER_ANCHOR);
+    if (this.featureCount < MIN_FEATURES_PER_ANCHOR) {
+      this.featureCount = 0;
+      return restore();
+    }
+    this.framesSinceSeed[0] = 0;
+    this.framesSinceSeed[1] = 0;
+    this.framesSinceKeyCheck = 0;
+    this.inliersA = this.countCloud(CLOUD_A);
+    this.inliersB = this.countCloud(CLOUD_B);
+    return true;
+  }
+
+  /**
+   * Búsqueda amplia mientras no hay consenso, alternando entre la plantilla en la última pose buena y la del
+   * keyframe. Al acertar, el seguimiento se reanuda en periodo de prueba.
+   */
+  private relocalize(tau: number): boolean {
+    if (!this.hasRelocRef) return false;
+    let t = this.relocTemplates[this.lostFrames & 1];
+    if (!t.valid) t = this.relocTemplates[(this.lostFrames + 1) & 1];
+    if (this.searchRelocTemplate(t, RELOC_SEARCH_RADIUS, RELOC_CENTER_ROTATION, 0, 2) < RELOC_MIN_ZNCC) return false;
+    if (!this.adoptRelocHit(t, tau, this.relocA, this.relocB)) return false;
+    this.probationFrames = RELOC_PROBATION_FRAMES;
+    this.recheckFramesLeft = POSE_RECHECK_WINDOW;
+    this.framesSinceRecheck = 0;
+    this.velAx = this.velAy = this.velBx = this.velBy = 0;
+    this.isLost = false;
+    this.lostFrames = 0;
+    this.hasRelocRef = false;
+    this.relocalizations++;
+    return true;
+  }
+
+  /**
+   * Recomprobación tras relocalizar: si la franja del keyframe encaja claramente mejor algo girada, escalada o
+   * desplazada, se corrige. La corrección por keyframe solo alcanza unos píxeles; esto cubre hasta ±7.5°, ±10 %
+   * y ±24 px.
+   */
+  private recheckPose(tau: number) {
+    const t = this.relocTemplates[0];
+    this.buildRelocTemplate(t, this.anchorA, this.anchorB);
+    if (!t.valid) return;
+    this.prepareRelocHypothesis(t, RELOC_CENTER_ROTATION, RELOC_CENTER_SCALE);
+    const current = this.relocScore(t, 0, 0);
+    const best = this.searchRelocTemplate(t, POSE_RECHECK_RADIUS, 2, 2, 1);
+    if (best < RELOC_MIN_ZNCC || best - current < POSE_RECHECK_MARGIN) return;
+    const a = { x: this.anchorA.x, y: this.anchorA.y };
+    const b = { x: this.anchorB.x, y: this.anchorB.y };
+    if (this.adoptRelocHit(t, tau, a, b)) this.poseCorrections++;
   }
 
   /**
@@ -1914,6 +2278,10 @@ export class LucasKanadeNeckTracker {
       inlierCount = this.markInliers(sim, tau);
       solved = inlierCount >= 3;
     }
+    if (this.probationFrames > 0) {
+      this.probationFrames--;
+      if (inlierCount < RELOC_PROBATION_MIN_INLIERS) solved = false;
+    }
 
     if (solved) {
       const movedA = { x: 0, y: 0 };
@@ -1965,19 +2333,33 @@ export class LucasKanadeNeckTracker {
         this.framesSinceKeyCheck = 0;
         this.correctDriftWithKeyframe(tau);
       }
-    } else {
+    }
+    if (!solved) {
+      // Las anclas congeladas son la última pose con consenso
+      if (!this.isLost) this.captureRelocReference();
       this.isLost = true;
       this.lostFrames++;
       this.inliersA = 0;
       this.inliersB = 0;
-      this.velAx *= 0.5;
-      this.velAy *= 0.5;
-      this.velBx *= 0.5;
-      this.velBy *= 0.5;
+      this.velAx = this.velAy = this.velBx = this.velBy = 0;
+      // Sin consenso, los puntos que sobreviven pueden estar siguiendo el fondo
+      this.featureCount = 0;
+      if (this.relocalize(tau)) {
+        this.inlierRatio = 1;
+        this.confidence = this.confidence * 0.8 + 0.6 * 0.2;
+        return true;
+      }
     }
 
     this.maintainFeatures(solved, tau);
     this.replenishFeatures();
+    if (solved && this.probationFrames === 0 && this.recheckFramesLeft > 0) {
+      this.recheckFramesLeft--;
+      if (++this.framesSinceRecheck >= POSE_RECHECK_INTERVAL) {
+        this.framesSinceRecheck = 0;
+        this.recheckPose(tau);
+      }
+    }
 
     this.inlierRatio = n > 0 ? inlierCount / n : 0;
     const raw = solved ? this.inlierRatio * Math.min(1, inlierCount / 8) : 0;
@@ -2016,15 +2398,14 @@ export class LucasKanadeNeckTracker {
   }
 
   private replenishFeatures() {
+    if (this.isLost) return;
     for (let cloud = CLOUD_A; cloud <= CLOUD_B; cloud++) {
       const count = this.countCloud(cloud);
       const needed = FEATURES_PER_ANCHOR - count;
       if (needed <= 0) continue;
       const since = this.framesSinceSeed[cloud];
       let due: boolean;
-      if (this.isLost) {
-        due = since >= LOST_RESEED_INTERVAL_FRAMES;
-      } else if (count < MIN_FEATURES_PER_ANCHOR) {
+      if (count < MIN_FEATURES_PER_ANCHOR) {
         due = since >= URGENT_RESEED_INTERVAL_FRAMES;
       } else {
         due = since >= REPLENISH_INTERVAL_FRAMES && count < FEATURES_PER_ANCHOR * 0.7;
