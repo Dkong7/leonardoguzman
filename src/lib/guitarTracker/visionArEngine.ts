@@ -1599,8 +1599,9 @@ interface FrameGeometry {
 
 export class GuitarVisionArEngine {
   private readonly tracker = new LucasKanadeNeckTracker();
-  private readonly filterA = new OneEuroFilter2D(1.5, 0.08, 1.2);
-  private readonly filterB = new OneEuroFilter2D(1.5, 0.08, 1.2);
+  // beta alto: con la guitarra en movimiento el filtro casi no retrasa (el LK ya es subpíxel en reposo)
+  private readonly filterA = new OneEuroFilter2D(1.5, 0.4, 2.0);
+  private readonly filterB = new OneEuroFilter2D(1.5, 0.4, 2.0);
   private displayA: Point2D = { x: 0, y: 0 };
   private displayB: Point2D = { x: 0, y: 0 };
   private poseIsDefault = true;
@@ -1608,6 +1609,14 @@ export class GuitarVisionArEngine {
 
   private offscreenCanvas: HTMLCanvasElement;
   private offscreenCtx: CanvasRenderingContext2D | null;
+  /**
+   * Fotograma de cámara ya recortado/espejado tal como lo vio el tracker. El fondo se pinta desde aquí y no
+   * desde el <video>: el video puede avanzar antes de que dispare requestVideoFrameCallback, y entonces la
+   * malla (del fotograma anterior) se vería desfasada un fotograma en los movimientos rápidos.
+   */
+  private frameCanvas: HTMLCanvasElement;
+  private frameCtx: CanvasRenderingContext2D | null;
+  private frameCanvasValid = false;
   private geom: FrameGeometry = {
     procW: 0, procH: 0, hasCrop: false, sx: 0, sy: 0, sw: 0, sh: 0, mirror: true,
   };
@@ -1644,6 +1653,8 @@ export class GuitarVisionArEngine {
   constructor() {
     this.offscreenCanvas = document.createElement('canvas');
     this.offscreenCtx = this.offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    this.frameCanvas = document.createElement('canvas');
+    this.frameCtx = this.frameCanvas.getContext('2d');
     this.updateGeometry(null, 960, 540);
   }
 
@@ -1784,6 +1795,7 @@ export class GuitarVisionArEngine {
     }
 
     this.geom = next;
+    this.frameCanvasValid = false;
     if (this.offscreenCanvas.width !== pw || this.offscreenCanvas.height !== ph) {
       this.offscreenCanvas.width = pw;
       this.offscreenCanvas.height = ph;
@@ -1801,6 +1813,7 @@ export class GuitarVisionArEngine {
   private ensureFrameCallback(video: HTMLVideoElement) {
     if (this.rvfcVideo === video) return;
     this.rvfcVideo = video;
+    this.frameCanvasValid = false;
     this.rvfcActive = typeof video.requestVideoFrameCallback === 'function';
     this.lastSerialChangeTime = performance.now();
     if (!this.rvfcActive) return;
@@ -1817,8 +1830,8 @@ export class GuitarVisionArEngine {
    * Captura el fotograma de cámara en currGrayBuffer solo si es un fotograma NUEVO
    * (la cámara suele entregar 30 fps mientras el render corre a 60 Hz).
    */
-  private ingestVideoFrame(video: HTMLVideoElement, now: number): boolean {
-    if (!this.offscreenCtx) return false;
+  private ingestVideoFrame(video: HTMLVideoElement, now: number, outW: number, outH: number): boolean {
+    if (!this.offscreenCtx || !this.frameCtx) return false;
     this.ensureFrameCallback(video);
     if (this.rvfcActive && this.frameSerial === this.processedSerial) {
       if (now - this.lastSerialChangeTime < RVFC_STALL_MS) return false;
@@ -1827,15 +1840,23 @@ export class GuitarVisionArEngine {
     }
 
     const g = this.geom;
-    const ctx = this.offscreenCtx;
-    ctx.save();
-    if (g.mirror) {
-      ctx.translate(g.procW, 0);
-      ctx.scale(-1, 1);
+    const fc = this.frameCanvas;
+    if (fc.width !== outW || fc.height !== outH) {
+      fc.width = outW;
+      fc.height = outH;
     }
-    ctx.drawImage(video, g.sx, g.sy, g.sw, g.sh, 0, 0, g.procW, g.procH);
-    ctx.restore();
+    const fctx = this.frameCtx;
+    fctx.save();
+    if (g.mirror) {
+      fctx.translate(outW, 0);
+      fctx.scale(-1, 1);
+    }
+    fctx.drawImage(video, g.sx, g.sy, g.sw, g.sh, 0, 0, outW, outH);
+    fctx.restore();
+    this.frameCanvasValid = true;
 
+    const ctx = this.offscreenCtx;
+    ctx.drawImage(fc, 0, 0, outW, outH, 0, 0, g.procW, g.procH);
     const rgba = ctx.getImageData(0, 0, g.procW, g.procH).data;
     const gray = this.tracker.beginFrame();
     const total = g.procW * g.procH;
@@ -1956,7 +1977,9 @@ export class GuitarVisionArEngine {
   public autoScanNeckFromVideo(video: HTMLVideoElement): boolean {
     if (video.readyState < 2 || video.videoWidth === 0) return false;
     this.updateGeometry(video, this.geom.procW, this.geom.procH);
-    this.ingestVideoFrame(video, performance.now());
+    this.ingestVideoFrame(
+      video, performance.now(), this.frameCanvas.width || this.geom.procW, this.frameCanvas.height || this.geom.procH
+    );
     return this.lockTracking();
   }
 
@@ -2289,7 +2312,7 @@ export class GuitarVisionArEngine {
 
     const videoReady = !!video && video.readyState >= 2 && video.videoWidth > 0;
     this.updateGeometry(videoReady ? video : null, canvasWidth, canvasHeight);
-    const newFrame = videoReady && video ? this.ingestVideoFrame(video, now) : false;
+    const newFrame = videoReady && video ? this.ingestVideoFrame(video, now, canvasWidth, canvasHeight) : false;
 
     if (this.state === 'calibrating_vertical') {
       if (newFrame) this.detectVerticalNeck();
@@ -2302,13 +2325,18 @@ export class GuitarVisionArEngine {
     // 1. Dibujar el stream de cámara con el mismo recorte (object-fit: cover) y espejo que el buffer de proceso
     const g = this.geom;
     if (videoReady && video && g.hasCrop) {
-      ctx.save();
-      if (g.mirror) {
-        ctx.translate(canvasWidth, 0);
-        ctx.scale(-1, 1);
+      const fc = this.frameCanvas;
+      if (this.frameCanvasValid && fc.width === canvasWidth && fc.height === canvasHeight) {
+        ctx.drawImage(fc, 0, 0);
+      } else {
+        ctx.save();
+        if (g.mirror) {
+          ctx.translate(canvasWidth, 0);
+          ctx.scale(-1, 1);
+        }
+        ctx.drawImage(video, g.sx, g.sy, g.sw, g.sh, 0, 0, canvasWidth, canvasHeight);
+        ctx.restore();
       }
-      ctx.drawImage(video, g.sx, g.sy, g.sw, g.sh, 0, 0, canvasWidth, canvasHeight);
-      ctx.restore();
 
       ctx.fillStyle = 'rgba(6, 8, 18, 0.25)';
       ctx.fillRect(0, 0, canvasWidth, canvasHeight);
