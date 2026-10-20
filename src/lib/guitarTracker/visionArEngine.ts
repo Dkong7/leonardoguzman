@@ -104,6 +104,11 @@ const MIN_HALF_WIDTH_RATIO = 0.03;
 const MAX_HALF_WIDTH_RATIO = 0.2;
 
 const REQUIRED_CALIBRATION_FRAMES = 45; // ~1.5 segundos continuos en calibración vertical
+const CALIBRATION_LADDER_FRAMES = 12; // últimos frames de la calibración en los que se miden los trastes
+const CALIBRATION_LADDER_AGREEMENT = 0.008; // fracción de |AB| para que dos escaleras sean la misma pose
+const CALIBRATION_LOCK_RETRIES = 15; // reintentos (cada 2 frames) esperando escaleras coincidentes
+const CALIBRATION_LOCK_MIN_AGREEING = 3; // escaleras coincidentes (incluida la actual) para fijar
+const CALIBRATION_GATE_FRAMES = 6; // frames detectados tras los que se exige continuidad del corredor
 const MANUAL_DRAG_SETTLE_MS = 220;
 const RVFC_STALL_MS = 300;
 
@@ -616,6 +621,503 @@ function medianInPlace(values: Float32Array, count: number): number {
   }
   const mid = count >> 1;
   return count % 2 === 1 ? values[mid] : 0.5 * (values[mid - 1] + values[mid]);
+}
+
+// =====================================================================
+// ESCALERA DE TRASTES: cejuela y traste 12 reales a partir de las líneas de traste visibles
+// =====================================================================
+
+export interface FretLadderFit {
+  nutY: number;
+  fret12Y: number;
+  nutAtTop: boolean;
+  matchedFrets: number;
+  rms: number;
+}
+
+const LADDER_MAX_PEAKS = 64;
+const LADDER_MIN_MATCHED = 6;
+const LADDER_TOLERANCE = 0.16;
+const LADDER_CANDIDATES = 12;
+const LADDER_CONTEXT_WEIGHT = 2.5;
+// Intervalos (n, n+1) sin incrustaciones: referencia del color del diapasón robusta a una mano encima
+const LADDER_BOARD_INTERVALS = [1, 3, 5, 7, 9, 10, 12, 13];
+
+/**
+ * Ajusta la ley temperada y(n) = y0 + D·(1 − 2^(−n/12)) (n = 0 cejuela, D = escala en px) a las líneas
+ * horizontales de la columna [x0, x1] de un diapasón vertical, con la cejuela arriba o abajo.
+ * La escalera es autosemejante (desplazada k trastes también encaja con D·2^(−k/12)), así que se penaliza
+ * la hipótesis que deja trastes detectados al otro lado de su cejuela.
+ * Con el mástil inclinado ([x0, x1] en la fila yRef, eje x = centro + (y − yRef)·slope) cada fila y se
+ * muestrea a lo largo del traste que cruza el eje en y; nutY/fret12Y siguen siendo filas sobre el eje.
+ */
+export function fitVerticalFretLadder(
+  img: Float32Array,
+  width: number,
+  height: number,
+  x0: number,
+  x1: number,
+  maxFret: number,
+  slope = 0,
+  yRef = height * 0.5
+): FretLadderFit | null {
+  const span = x1 - x0;
+  const xa = Math.max(1, Math.round(x0 + span * 0.18));
+  const xb = Math.min(width - 2, Math.round(x1 - span * 0.18));
+  if (xb - xa < 3 || height < 40) return null;
+  const frets = Math.max(12, Math.min(30, Math.round(maxFret)));
+
+  const rows = new Float32Array(height);
+  const invCount = 1 / (xb - xa + 1);
+  if (Math.abs(slope) < 1e-4) {
+    for (let y = 0; y < height; y++) {
+      const row = y * width;
+      let s = 0;
+      for (let x = xa; x <= xb; x++) s += img[row + x];
+      rows[y] = s * invCount;
+    }
+  } else {
+    const half = 0.5 * (xb - xa);
+    const mid = 0.5 * (x0 + x1);
+    for (let y = 0; y < height; y++) {
+      const xc = mid + (y - yRef) * slope;
+      let s = 0;
+      for (let i = 0; i <= xb - xa; i++) {
+        const t = i - half;
+        const sx = clamp(xc + t, 0, width - 1.001);
+        const sy = clamp(y - slope * t, 0, height - 1.001);
+        const ix = sx | 0;
+        const iy = sy | 0;
+        const fx = sx - ix;
+        const fy = sy - iy;
+        const o = iy * width + ix;
+        const top = img[o] + (img[o + 1] - img[o]) * fx;
+        const bot = img[o + width] + (img[o + width + 1] - img[o + width]) * fx;
+        s += top + (bot - top) * fy;
+      }
+      rows[y] = s * invCount;
+    }
+  }
+
+  // Detector de línea fina: trastes claros sobre palisandro (o al revés en arce)
+  const resp = new Float32Array(height);
+  let posEnergy = 0;
+  let negEnergy = 0;
+  for (let y = 2; y < height - 2; y++) {
+    const r = rows[y] - 0.5 * (rows[y - 2] + rows[y + 2]);
+    resp[y] = r;
+    if (r > 0) posEnergy += r * r;
+    else negEnergy += r * r;
+  }
+  const polarity = posEnergy >= negEnergy ? 1 : -1;
+  const line = new Float32Array(height);
+  for (let y = 2; y < height - 2; y++) line[y] = Math.max(0, polarity * resp[y]);
+
+  const sorted = Float32Array.from(line.subarray(2, height - 2)).sort();
+  const threshold = Math.max(2.5, 4 * sorted[sorted.length >> 1]);
+
+  const peakPos: number[] = [];
+  const peakStrength: number[] = [];
+  for (let y = 3; y < height - 3; y++) {
+    const v = line[y];
+    if (v < threshold || v <= line[y - 1] || v < line[y + 1] || v < line[y - 2] || v < line[y + 2]) continue;
+    const den = line[y - 1] - 2 * v + line[y + 1];
+    const delta = den < -1e-6 ? clamp((0.5 * (line[y - 1] - line[y + 1])) / den, -0.5, 0.5) : 0;
+    peakPos.push(y + delta);
+    peakStrength.push(v);
+  }
+  if (peakPos.length < LADDER_MIN_MATCHED) return null;
+  if (peakPos.length > LADDER_MAX_PEAKS) {
+    const order = peakPos.map((_, i) => i).sort((a, b) => peakStrength[b] - peakStrength[a]);
+    const keep = order.slice(0, LADDER_MAX_PEAKS).sort((a, b) => peakPos[a] - peakPos[b]);
+    const pos = keep.map((i) => peakPos[i]);
+    const str = keep.map((i) => peakStrength[i]);
+    peakPos.length = 0;
+    peakStrength.length = 0;
+    peakPos.push(...pos);
+    peakStrength.push(...str);
+  }
+  // Pesos relativos a la línea típica: los trastes dominan el recuento de picos
+  const typicalStrength = [...peakStrength].sort((a, b) => a - b)[peakStrength.length >> 1];
+  const peakWeight = peakStrength.map((s) => Math.min(1, s / Math.max(1e-6, typicalStrength)));
+
+  const c = new Float64Array(frets + 1);
+  for (let n = 0; n <= frets; n++) c[n] = 1 - Math.pow(2, -n / 12);
+  const cNeg = new Float64Array(6);
+  for (let m = 0; m <= 5; m++) cNeg[m] = 1 - Math.pow(2, m / 12);
+
+  const t = new Float64Array(peakPos.length);
+  const tw = new Float64Array(peakPos.length);
+  const matchedFlags = new Uint8Array(frets + 1);
+
+  const prefix = new Float64Array(height + 1);
+  for (let y = 0; y < height; y++) prefix[y + 1] = prefix[y] + rows[y];
+  let flipped = false;
+  const intervalMean = (ta: number, tb: number): number => {
+    const ya = flipped ? height - 1 - tb : ta;
+    const yb = flipped ? height - 1 - ta : tb;
+    const ia = Math.max(0, Math.ceil(ya));
+    const ib = Math.min(height - 1, Math.floor(yb));
+    if (ib - ia + 1 < 3) return NaN;
+    return (prefix[ib + 1] - prefix[ia]) / (ib - ia + 1);
+  };
+  const innerMean = (n: number, y0: number, D: number): number => {
+    const a = y0 + D * (n < 0 ? cNeg[-n] : c[n]);
+    const b = y0 + D * c[n + 1];
+    const margin = Math.max(1, 0.15 * (b - a));
+    return intervalMean(a + margin, b - margin);
+  };
+  const boardRef: number[] = [];
+  // Entre trastes todo es madera del diapasón; por encima de la cejuela (pala + hueso) no. Distingue la
+  // hipótesis buena de la que toma la cejuela como traste 1 o el traste 1 como cejuela.
+  const nutContextBonus = (y0: number, D: number): number => {
+    boardRef.length = 0;
+    for (const n of LADDER_BOARD_INTERVALS) {
+      if (n + 1 > frets) break;
+      const m = innerMean(n, y0, D);
+      if (!Number.isNaN(m)) boardRef.push(m);
+    }
+    if (boardRef.length < 2) return 0;
+    boardRef.sort((a, b) => a - b);
+    const ref = boardRef[boardRef.length >> 1];
+    const inconsistency = (m: number) => (Number.isNaN(m) ? 0.5 : Math.min(1, Math.abs(m - ref) / 25));
+    return LADDER_CONTEXT_WEIGHT * (inconsistency(innerMean(-1, y0, D)) - inconsistency(innerMean(0, y0, D)));
+  };
+
+  // Peso de la coincidencia más cercana a q (0 si no hay pico dentro de la tolerancia)
+  const matchWeight = (q: number, tol: number): number => {
+    let lo = 0;
+    let hi = t.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (t[mid] < q) lo = mid;
+      else hi = mid;
+    }
+    const k = Math.abs(t[lo] - q) <= Math.abs(t[hi] - q) ? lo : hi;
+    const d = Math.abs(t[k] - q) / tol;
+    return d <= 1 ? (1 - d * d) * tw[k] : 0;
+  };
+
+  const scoreLines = (y0: number, D: number): number => {
+    let score = 0;
+    let first = -1;
+    let last = -1;
+    matchedFlags.fill(0);
+    // n = 0 puntúa el borde cejuela/diapasón: sin él, "cejuela = traste 1" empata con la hipótesis buena
+    for (let n = 0; n <= frets; n++) {
+      const tp = y0 + D * c[n];
+      if (tp < 1 || tp > height - 2) continue;
+      const m = matchWeight(tp, Math.max(0.9, LADDER_TOLERANCE * D * (n === 0 ? c[1] : c[n] - c[n - 1])));
+      if (m > 0) {
+        score += m;
+        matchedFlags[n] = 1;
+        if (first < 0) first = n;
+        last = n;
+      }
+    }
+    for (let n = first + 1; n < last; n++) {
+      if (!matchedFlags[n]) score -= 0.3;
+    }
+    // Una línea donde iría el "traste −1" suele ser la cejuela real: la hipótesis está corrida un traste
+    for (let m = 1; m <= 5; m++) {
+      const tp = y0 + D * cNeg[m];
+      if (tp < 1) break;
+      const tol = Math.max(0.9, LADDER_TOLERANCE * D * (cNeg[m - 1] - cNeg[m]));
+      score -= (m === 1 ? 1.6 : 1.0) * matchWeight(tp, tol);
+    }
+    return score;
+  };
+  const scoreHypothesis = (y0: number, D: number): number => scoreLines(y0, D) + nutContextBonus(y0, D);
+
+  const loadOrientation = (nutAtTop: boolean) => {
+    flipped = !nutAtTop;
+    for (let i = 0; i < peakPos.length; i++) {
+      const src = nutAtTop ? i : peakPos.length - 1 - i;
+      t[i] = nutAtTop ? peakPos[src] : height - 1 - peakPos[src];
+      tw[i] = peakWeight[src];
+    }
+  };
+
+  // Mínimos cuadrados y = y0 + D·c(n) sobre los trastes emparejados (la cejuela n = 0 queda fuera: su
+  // borde detectado está sesgado ~1 px hacia el hueso)
+  const refine = (y0In: number, DIn: number) => {
+    let y0 = y0In;
+    let D = DIn;
+    let matched = 0;
+    let rms = Infinity;
+    let first = -1;
+    let last = -1;
+    for (let iter = 0; iter < 3; iter++) {
+      let sc = 0, st = 0, scc = 0, sct = 0, stt = 0;
+      matched = 0;
+      first = -1;
+      last = -1;
+      for (let n = 1; n <= frets; n++) {
+        const tp = y0 + D * c[n];
+        if (tp < 1 || tp > height - 2) continue;
+        const tol = Math.max(0.9, LADDER_TOLERANCE * D * (c[n] - c[n - 1]));
+        let lo = 0;
+        let hi = t.length - 1;
+        while (hi - lo > 1) {
+          const mid = (lo + hi) >> 1;
+          if (t[mid] < tp) lo = mid;
+          else hi = mid;
+        }
+        const tk = Math.abs(t[lo] - tp) <= Math.abs(t[hi] - tp) ? t[lo] : t[hi];
+        if (Math.abs(tk - tp) > tol) continue;
+        sc += c[n];
+        st += tk;
+        scc += c[n] * c[n];
+        sct += c[n] * tk;
+        stt += tk * tk;
+        matched++;
+        if (first < 0) first = n;
+        last = n;
+      }
+      if (matched < LADDER_MIN_MATCHED) return null;
+      const varC = scc - (sc * sc) / matched;
+      if (varC < 1e-9) return null;
+      D = (sct - (sc * st) / matched) / varC;
+      y0 = (st - D * sc) / matched;
+      const sse = stt - 2 * y0 * st - 2 * D * sct + matched * y0 * y0 + 2 * y0 * D * sc + D * D * scc;
+      rms = Math.sqrt(Math.max(0, sse) / matched);
+    }
+    return { y0, D, matched, rms, first, last };
+  };
+
+  // Hipótesis de 2 trastes extrapolan mal hasta los trastes agudos (tolerancia < 1 px): se refinan las
+  // mejores antes de compararlas
+  const candidates: { score: number; y0: number; D: number; top: boolean }[] = [];
+  const offerCandidate = (score: number, y0: number, D: number, top: boolean) => {
+    if (candidates.length === LADDER_CANDIDATES && score <= candidates[candidates.length - 1].score) return;
+    for (const cand of candidates) {
+      if (cand.top === top && Math.abs(cand.y0 - y0) < 1.5 && Math.abs(cand.D - D) < 0.01 * D) {
+        if (score > cand.score) {
+          cand.score = score;
+          cand.y0 = y0;
+          cand.D = D;
+          candidates.sort((a, b) => b.score - a.score);
+        }
+        return;
+      }
+    }
+    candidates.push({ score, y0, D, top });
+    candidates.sort((a, b) => b.score - a.score);
+    if (candidates.length > LADDER_CANDIDATES) candidates.pop();
+  };
+
+  for (const nutAtTop of [true, false]) {
+    loadOrientation(nutAtTop);
+    for (let i = 0; i < t.length; i++) {
+      for (let j = i + 1; j <= Math.min(t.length - 1, i + 3); j++) {
+        const gap = t[j] - t[i];
+        if (gap < 3) continue;
+        for (let ni = 0; ni <= 10; ni++) {
+          for (let nj = ni + 1; nj <= Math.min(frets, ni + 4); nj++) {
+            const D = gap / (c[nj] - c[ni]);
+            if (D * 0.5 < 0.12 * height || D * 0.5 > 1.3 * height) continue;
+            const y0 = t[i] - D * c[ni];
+            if (y0 < -0.5 * height || y0 > 0.85 * height) continue;
+            const lines = scoreLines(y0, D);
+            const floor = candidates.length === LADDER_CANDIDATES ? candidates[candidates.length - 1].score : -Infinity;
+            if (lines + LADDER_CONTEXT_WEIGHT <= floor) continue;
+            offerCandidate(lines + nutContextBonus(y0, D), y0, D, nutAtTop);
+          }
+        }
+      }
+    }
+  }
+
+  let bestScore = -Infinity;
+  let best: { y0: number; D: number; matched: number; rms: number; first: number; last: number; top: boolean } | null =
+    null;
+  for (const cand of candidates) {
+    loadOrientation(cand.top);
+    const r = refine(cand.y0, cand.D);
+    if (!r) continue;
+    const s = scoreHypothesis(r.y0, r.D);
+    if (s > bestScore) {
+      bestScore = s;
+      best = { ...r, top: cand.top };
+    }
+  }
+  if (!best || bestScore < LADDER_MIN_MATCHED * 0.6) return null;
+
+  const spacingAtLast = best.D * (c[best.last] - c[best.last - 1]);
+  if (best.matched / (best.last - best.first + 1) < 0.6 || best.rms > Math.max(0.8, 0.12 * spacingAtLast)) {
+    return null;
+  }
+  const nutT = best.y0;
+  const fret12T = best.y0 + best.D * 0.5;
+  return {
+    nutY: best.top ? nutT : height - 1 - nutT,
+    fret12Y: best.top ? fret12T : height - 1 - fret12T,
+    nutAtTop: best.top,
+    matchedFrets: best.matched,
+    rms: best.rms,
+  };
+}
+
+/** Eje de un mástil casi vertical: en la fila y pasa por x = cx + (y − yRef)·slope */
+export interface NeckAxis {
+  cx: number;
+  yRef: number;
+  slope: number;
+  halfWidth: number;
+}
+
+const AXIS_MAX_TILT_DEG = 12;
+const AXIS_FINE_STEP_DEG = 0.125;
+const AXIS_EDGE_THRESHOLD = 95;
+
+/**
+ * Inclinación y centro reales del mástil detectado en [leftX, rightX] (columnas del perfil vertical).
+ * Bordes, filetes y cuerdas son paralelos al eje (el estrechamiento es simétrico): la cizalla
+ * x' = x − (y − yRef)·tan(φ) que más concentra la energía de bordes verticales da la inclinación, y en ese
+ * perfil cizallado el par de bordes de polaridad opuesta da el centro.
+ */
+export function estimateNeckAxis(
+  img: Float32Array,
+  width: number,
+  height: number,
+  leftX: number,
+  rightX: number,
+  topRow: number,
+  bottomRow: number
+): NeckAxis | null {
+  const y0 = Math.max(1, Math.floor(topRow));
+  const y1 = Math.min(height - 2, Math.ceil(bottomRow));
+  if (y1 - y0 < 20 || rightX - leftX < 4) return null;
+  const yRef = 0.5 * (y0 + y1);
+  const maxTan = Math.tan((AXIS_MAX_TILT_DEG * Math.PI) / 180);
+  const margin = Math.ceil(0.5 * (y1 - y0) * maxTan) + 4;
+  const xMin = Math.max(1, Math.floor(leftX) - margin);
+  const xMax = Math.min(width - 2, Math.ceil(rightX) + margin);
+
+  const capacity = (xMax - xMin + 1) * (y1 - y0 + 1);
+  const hx = new Float32Array(capacity);
+  const hy = new Float32Array(capacity);
+  const hv = new Float32Array(capacity);
+  let hits = 0;
+  for (let y = y0; y <= y1; y++) {
+    const row = y * width;
+    for (let x = xMin; x <= xMax; x++) {
+      const idx = row + x;
+      const gx =
+        -img[idx - width - 1] + img[idx - width + 1] - 2 * img[idx - 1] + 2 * img[idx + 1] -
+        img[idx + width - 1] + img[idx + width + 1];
+      const gy =
+        -img[idx - width - 1] - 2 * img[idx - width] - img[idx - width + 1] +
+        img[idx + width - 1] + 2 * img[idx + width] + img[idx + width + 1];
+      if (Math.abs(gx) < AXIS_EDGE_THRESHOLD || Math.abs(gx) <= Math.abs(gy) * 1.75) continue;
+      hx[hits] = x;
+      hy[hits] = y - yRef;
+      hv[hits] = gx;
+      hits++;
+    }
+  }
+  if (hits < 40) return null;
+
+  const base = xMin - margin - 2;
+  const bins = xMax - xMin + 2 * margin + 6;
+  const pos = new Float32Array(bins);
+  const neg = new Float32Array(bins);
+  const shear = (k: number) => {
+    pos.fill(0);
+    neg.fill(0);
+    for (let i = 0; i < hits; i++) {
+      const xs = hx[i] - hy[i] * k - base;
+      const i0 = Math.floor(xs);
+      if (i0 < 0 || i0 >= bins - 1) continue;
+      const f = xs - i0;
+      const v = hv[i];
+      const arr = v > 0 ? pos : neg;
+      const m = v > 0 ? v : -v;
+      arr[i0] += m * (1 - f);
+      arr[i0 + 1] += m * f;
+    }
+  };
+  const concentration = (deg: number): number => {
+    shear(Math.tan((deg * Math.PI) / 180));
+    let s = 0;
+    for (let i = 1; i < bins - 1; i++) {
+      const p = 0.25 * pos[i - 1] + 0.5 * pos[i] + 0.25 * pos[i + 1];
+      const n = 0.25 * neg[i - 1] + 0.5 * neg[i] + 0.25 * neg[i + 1];
+      s += p * p + n * n;
+    }
+    return s;
+  };
+
+  let bestDeg = 0;
+  let bestScore = -Infinity;
+  for (let deg = -AXIS_MAX_TILT_DEG; deg <= AXIS_MAX_TILT_DEG; deg += 1) {
+    const s = concentration(deg);
+    if (s > bestScore) {
+      bestScore = s;
+      bestDeg = deg;
+    }
+  }
+  const coarse = bestDeg;
+  const fineSteps = Math.round(1 / AXIS_FINE_STEP_DEG);
+  const fine = new Float64Array(2 * fineSteps + 1);
+  let bestFine = fineSteps;
+  for (let j = 0; j <= 2 * fineSteps; j++) {
+    fine[j] = concentration(coarse + (j - fineSteps) * AXIS_FINE_STEP_DEG);
+    if (fine[j] > fine[bestFine]) bestFine = j;
+  }
+  let deg = coarse + (bestFine - fineSteps) * AXIS_FINE_STEP_DEG;
+  if (bestFine > 0 && bestFine < 2 * fineSteps) {
+    const a = fine[bestFine - 1];
+    const b = fine[bestFine];
+    const c = fine[bestFine + 1];
+    const den = a - 2 * b + c;
+    if (den < 0) deg += clamp((0.5 * (a - c)) / den, -0.5, 0.5) * AXIS_FINE_STEP_DEG;
+  }
+  const slope = Math.tan((deg * Math.PI) / 180);
+
+  // Centro por simetría especular del perfil enderezado: con I(c + t) = I(c − t) el gradiente cumple
+  // gx(c + t) = −gx(c − t). Usa a la vez bordes, filetes y cuerdas, sin depender de cuál contrasta más.
+  shear(slope);
+  const ps = new Float32Array(bins);
+  const ns = new Float32Array(bins);
+  for (let i = 1; i < bins - 1; i++) {
+    ps[i] = 0.25 * pos[i - 1] + 0.5 * pos[i] + 0.25 * pos[i + 1];
+    ns[i] = 0.25 * neg[i - 1] + 0.5 * neg[i] + 0.25 * neg[i + 1];
+  }
+  const half = 0.5 * (rightX - leftX);
+  const maxSpread = 2 * Math.ceil(1.3 * half);
+  const reach = Math.max(4, Math.round(0.6 * half));
+  const mMid = Math.round(leftX + rightX) - 2 * base;
+  const symmetry = (m: number): number => {
+    let s = 0;
+    for (let i = (m >> 1) + 1; 2 * i - m <= maxSpread && i < bins; i++) {
+      const j = m - i;
+      if (j < 0) break;
+      s += ps[i] * ns[j] + ns[i] * ps[j];
+    }
+    return s;
+  };
+  let bestM = mMid;
+  let bestSym = -Infinity;
+  const symScores = new Float64Array(4 * reach + 1);
+  for (let k = 0; k <= 4 * reach; k++) {
+    symScores[k] = symmetry(mMid - 2 * reach + k);
+    if (symScores[k] > bestSym) {
+      bestSym = symScores[k];
+      bestM = mMid - 2 * reach + k;
+    }
+  }
+  if (!(bestSym > 0)) return null;
+  let mRefined = bestM;
+  const kBest = bestM - (mMid - 2 * reach);
+  if (kBest > 0 && kBest < 4 * reach) {
+    const a = symScores[kBest - 1];
+    const c = symScores[kBest + 1];
+    const den = a - 2 * bestSym + c;
+    if (den < 0) mRefined += clamp((0.5 * (a - c)) / den, -0.5, 0.5);
+  }
+  const cosT = 1 / Math.sqrt(1 + slope * slope);
+  return { cx: base + 0.5 * mRefined, yRef, slope, halfWidth: half * cosT };
 }
 
 // =====================================================================
@@ -1651,6 +2153,8 @@ export class GuitarVisionArEngine {
     topY: 0.14,
     bottomY: 0.86,
   };
+  private calibLadderFits: FretLadderFit[] = [];
+  private calibLockRetries = 0;
 
   public trackingMode: 'hybrid-auto' | 'kalman-locked' | 'manual-calibration' = 'hybrid-auto';
   public showVisionDebug = true;
@@ -1918,6 +2422,8 @@ export class GuitarVisionArEngine {
     this.state = 'calibrating_vertical';
     this.calibrationHoldFrames = 0;
     this.calibDetected = false;
+    this.calibLadderFits = [];
+    this.calibLockRetries = 0;
     this.pendingLock = false;
     this.posePaused = false;
     this.trackingConfidence = 0.5;
@@ -2051,12 +2557,48 @@ export class GuitarVisionArEngine {
   }
 
   /**
+   * Escalera para fijar la pose en el fotograma actual (la última de calibLadderFits): mediana de las
+   * recientes que coinciden con ella; con la guitarra moviéndose las antiguas quedan fuera y la mediana no
+   * llega tarde. Con allowMotion (tras agotar la espera) vale la actual sola si la anterior la sigue de
+   * cerca: cada escalera es precisa por sí misma y los ajustes espurios saltan un traste entero.
+   * 'unconfirmed' para seguir esperando; null si no hay trastes fiables (se usa la geometría de la guía).
+   */
+  private lockLadderFit(
+    current: FretLadderFit | null,
+    allowMotion: boolean
+  ): { nutY: number; fret12Y: number } | 'unconfirmed' | null {
+    const fits = this.calibLadderFits;
+    if (!current) return fits.length && !allowMotion ? 'unconfirmed' : null;
+    if (Math.abs(current.fret12Y - current.nutY) <= 8) return null;
+    const tol = Math.max(1, CALIBRATION_LADDER_AGREEMENT * Math.abs(current.fret12Y - current.nutY));
+    const near = (f: FretLadderFit, t: number) =>
+      f.nutAtTop === current.nutAtTop && Math.abs(f.nutY - current.nutY) <= t && Math.abs(f.fret12Y - current.fret12Y) <= t;
+    const agree = fits.filter((f) => near(f, tol));
+    if (agree.length >= CALIBRATION_LOCK_MIN_AGREEING) {
+      const median = (values: number[]) => {
+        const s = [...values].sort((a, b) => a - b);
+        const m = s.length >> 1;
+        return s.length % 2 ? s[m] : 0.5 * (s[m - 1] + s[m]);
+      };
+      return { nutY: median(agree.map((f) => f.nutY)), fret12Y: median(agree.map((f) => f.fret12Y)) };
+    }
+    if (allowMotion && fits.length >= 2 && near(fits[fits.length - 2], 3 * tol)) {
+      return { nutY: current.nutY, fret12Y: current.fret12Y };
+    }
+    return 'unconfirmed';
+  }
+
+  /**
    * Calibración Inicial Vertical Endurecida (detectVerticalNeck) sobre el fotograma actual:
    * 1. Filtro de Bordes Paralelos con Polaridad Opuesta: Busca un par de bordes verticales rectilíneos
    *    con signo de gradiente opuesto, separados entre el 8% y el 20% del ancho del frame.
    * 2. Rechazo de Formas Orgánicas: umbral Sobel X estricto y colinealidad en 3 tercios verticales.
    * 3. Filtro de Varianza Interna y Alta Frecuencia (Trastes/Cuerdas) dentro del corredor.
-   * Al completar 45 fotogramas fija la pose (cejuela arriba) y arranca el flujo óptico.
+   * 4. Escalera de trastes: en los últimos frames se ajusta la ley temperada a los trastes visibles para
+   *    ubicar la cejuela y el traste 12 reales (y su sentido) en vez de suponerlos en los bordes de la guía.
+   * 5. Eje real del fotograma de bloqueo (inclinación + centro, estimateNeckAxis): la escalera se mide a lo
+   *    largo de él y la pose no se supone vertical. Si la guitarra se mueve se espera a escaleras coincidentes.
+   * Al completar 45 fotogramas fija la pose y arranca el flujo óptico.
    */
   private detectVerticalNeck(): boolean {
     const level = this.tracker.currentLevel0;
@@ -2237,12 +2779,27 @@ export class GuitarVisionArEngine {
       }
     }
 
-    const isDetected = bestLeftX !== -1 && bestRightX !== -1 && bestScore >= minEdgeEnergy * 0.95;
+    let isDetected = bestLeftX !== -1 && bestRightX !== -1 && bestScore >= minEdgeEnergy * 0.95;
+    if (isDetected && this.calibrationHoldFrames >= CALIBRATION_GATE_FRAMES) {
+      // Con el mástil inclinado más de ~4° el perfil vertical empareja bordes ajenos: otra anchura o un
+      // salto de medio mástil no es el mismo diapasón
+      const prevWidth = (this.calibCorridor.rightX - this.calibCorridor.leftX) * w;
+      const prevCenter = (this.calibCorridor.leftX + this.calibCorridor.rightX) * 0.5 * w;
+      if (
+        Math.abs(bestRightX - bestLeftX - prevWidth) > 0.3 * prevWidth ||
+        Math.abs((bestLeftX + bestRightX) * 0.5 - prevCenter) > 0.5 * prevWidth
+      ) {
+        isDetected = false;
+      }
+    }
     this.calibDetected = isDetected;
 
+    let axis: NeckAxis | null = null;
+    let currentFit: FretLadderFit | null = null;
     if (isDetected) {
-      this.calibCorridor.leftX = this.calibCorridor.leftX * 0.65 + (bestLeftX / w) * 0.35;
-      this.calibCorridor.rightX = this.calibCorridor.rightX * 0.65 + (bestRightX / w) * 0.35;
+      const blend = this.calibrationHoldFrames === 0 ? 1 : 0.35;
+      this.calibCorridor.leftX += (bestLeftX / w - this.calibCorridor.leftX) * blend;
+      this.calibCorridor.rightX += (bestRightX / w - this.calibCorridor.rightX) * blend;
       this.calibCorridor.topY = 0.14;
       this.calibCorridor.bottomY = 0.86;
       this.calibrationHoldFrames = Math.min(REQUIRED_CALIBRATION_FRAMES, this.calibrationHoldFrames + 1);
@@ -2250,20 +2807,53 @@ export class GuitarVisionArEngine {
         0.99,
         0.55 + (this.calibrationHoldFrames / REQUIRED_CALIBRATION_FRAMES) * 0.44
       );
+      if (
+        this.calibrationHoldFrames > REQUIRED_CALIBRATION_FRAMES - CALIBRATION_LADDER_FRAMES &&
+        this.calibrationHoldFrames % 2 === 1
+      ) {
+        axis = estimateNeckAxis(gray, w, h, bestLeftX, bestRightX, topRow, bottomRow);
+        currentFit = axis
+          ? fitVerticalFretLadder(gray, w, h, axis.cx - axis.halfWidth, axis.cx + axis.halfWidth, this.totalFrets, axis.slope, axis.yRef)
+          : fitVerticalFretLadder(gray, w, h, bestLeftX, bestRightX, this.totalFrets);
+        if (currentFit) {
+          this.calibLadderFits.push(currentFit);
+          if (this.calibLadderFits.length > CALIBRATION_LADDER_FRAMES >> 1) this.calibLadderFits.shift();
+        }
+      }
     } else {
       this.calibrationHoldFrames = Math.max(0, this.calibrationHoldFrames - 3);
       this.trackingConfidence = Math.max(0.25, this.trackingConfidence - 0.04);
+      this.calibLadderFits = [];
+      this.calibLockRetries = 0;
     }
 
     if (this.calibrationHoldFrames < REQUIRED_CALIBRATION_FRAMES) return false;
 
+    // La pose se fija en este fotograma: con la guitarra en movimiento la mediana de los anteriores llega tarde
+    const ladder = this.lockLadderFit(currentFit, this.calibLockRetries >= CALIBRATION_LOCK_RETRIES);
+    if (ladder === 'unconfirmed') {
+      this.calibLockRetries = Math.min(CALIBRATION_LOCK_RETRIES, this.calibLockRetries + 1);
+      this.calibrationHoldFrames = REQUIRED_CALIBRATION_FRAMES - 2;
+      return false;
+    }
+    this.calibLadderFits = [];
+    this.calibLockRetries = 0;
+
     const c = this.calibCorridor;
-    const centerX = (c.leftX + c.rightX) * 0.5 * w;
-    const halfWidthPx = clamp((c.rightX - c.leftX) * 0.5, 0.04, 0.10) * w;
-    const nut = { x: centerX, y: c.topY * h };
-    const end = { x: centerX, y: c.bottomY * h };
+    const centerX = axis ? axis.cx : (c.leftX + c.rightX) * 0.5 * w;
+    const slope = axis ? axis.slope : 0;
+    const yRef = axis ? axis.yRef : 0;
+    const halfWidthPx = axis
+      ? clamp(axis.halfWidth, 0.04 * w, 0.1 * w)
+      : clamp((c.rightX - c.leftX) * 0.5, 0.04, 0.10) * w;
     const u12 = this.fret12U;
-    const fret12 = { x: nut.x + (end.x - nut.x) * u12, y: nut.y + (end.y - nut.y) * u12 };
+    // Sin escalera de trastes fiable se asume la cejuela en el borde superior de la guía y el último traste abajo
+    const nutY = ladder ? ladder.nutY : c.topY * h;
+    const fret12Y = ladder ? ladder.fret12Y : nutY + (c.bottomY * h - nutY) * u12;
+    // Medidas en índices de píxel (centro del píxel i en i); la pose usa coordenadas continuas (centro en
+    // i + 0.5), que es lo que suponen toNormalized, el espejo procW − x y el dibujo de la malla
+    const nut = { x: centerX + (nutY - yRef) * slope + 0.5, y: nutY + 0.5 };
+    const fret12 = { x: centerX + (fret12Y - yRef) * slope + 0.5, y: fret12Y + 0.5 };
     const d = Math.hypot(fret12.x - nut.x, fret12.y - nut.y);
     this.tracker.nutHalfWidthRatio = clamp((halfWidthPx * 0.9) / d, MIN_HALF_WIDTH_RATIO, MAX_HALF_WIDTH_RATIO);
     this.tracker.endHalfWidthRatio = clamp((halfWidthPx * 1.06) / d, MIN_HALF_WIDTH_RATIO, MAX_HALF_WIDTH_RATIO);
@@ -2318,7 +2908,9 @@ export class GuitarVisionArEngine {
     ctx.font = 'bold 11px Inter, monospace, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(
-      isDetected
+      isDetected && this.calibLockRetries > 0
+        ? 'DIAPASÓN DETECTADO: MANTÉN QUIETA LA GUITARRA'
+        : isDetected
         ? `DIAPASÓN DETECTADO: MANTÉN ${this.calibrationHoldFrames}/${REQUIRED_CALIBRATION_FRAMES} FRAMES (${Math.round(progress * 100)}%)`
         : `ALINEA EL DIAPASÓN VERTICAL EN EL CENTRO (${this.calibrationHoldFrames}/${REQUIRED_CALIBRATION_FRAMES})`,
       canvasWidth * 0.5,
@@ -2638,7 +3230,7 @@ export class GuitarVisionArEngine {
         ctx.save();
         this.tracker.forEachFeature((x, y, cloud, inlier) => {
           ctx.beginPath();
-          ctx.arc(x * toCanvasX, y * toCanvasY, 2.6, 0, Math.PI * 2);
+          ctx.arc((x + 0.5) * toCanvasX, (y + 0.5) * toCanvasY, 2.6, 0, Math.PI * 2);
           ctx.fillStyle = !inlier ? '#f87171' : cloud === CLOUD_A ? '#4ade80' : '#22d3ee';
           ctx.fill();
         });
