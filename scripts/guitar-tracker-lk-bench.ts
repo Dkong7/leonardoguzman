@@ -2,12 +2,17 @@
 // Renderiza una guitarra procedural (trastes, cuerdas, incrustaciones, clavijero, cuerpo) sobre un fondo
 // texturizado, con pose de referencia exacta, y mide el error de anchorA (cejuela) y anchorB (traste 12).
 //
-//   npx tsx scripts/guitar-tracker-lk-bench.ts                 # escenarios horizontal y vertical
+//   npx tsx scripts/guitar-tracker-lk-bench.ts                 # escenarios horizontal y vertical, recuperación
+//                                                               # tras sacudida 3x y calibración por trastes
 //   npx tsx scripts/guitar-tracker-lk-bench.ts --y4m out.y4m   # exporta el escenario como cámara falsa
 //                                                               # (chrome --use-file-for-fake-video-capture)
+//        [--portrait] [--truth verdad.json]                     # 480x960 vertical + pose real por fotograma
+//   --ladder-only  solo la calibración por escalera de trastes
+//   --seed N    otra textura de fondo/guitarra
+//   --shake K   multiplica la amplitud de la sacudida (prueba de estrés; K=1 es la línea de tiempo normal)
 
-import { closeSync, openSync, writeSync } from 'node:fs';
-import { LucasKanadeNeckTracker } from '../src/lib/guitarTracker/visionArEngine';
+import { closeSync, openSync, writeFileSync, writeSync } from 'node:fs';
+import { LucasKanadeNeckTracker, estimateNeckAxis, fitVerticalFretLadder } from '../src/lib/guitarTracker/visionArEngine';
 
 interface Pose {
   ax: number;
@@ -312,10 +317,12 @@ function ease(t: number) {
 }
 
 /** Línea de tiempo: estático → rotación → escala/perspectiva → mano tapando la cejuela → sacudida → exposición */
-function buildTimeline(width: number, height: number, vertical: boolean, frames: number): Frame[] {
+function buildTimeline(
+  width: number, height: number, vertical: boolean, frames: number, nutY = 0.13, shake = SHAKE
+): Frame[] {
   const unit = Math.min(width, height) / 225;
   const base: Pose = vertical
-    ? { ax: width * 0.5, ay: height * 0.13, theta: Math.PI / 2, s: 165 * unit * (225 / 300), k: 0 }
+    ? { ax: width * 0.5, ay: height * nutY, theta: Math.PI / 2, s: 165 * unit * (225 / 300), k: 0 }
     : { ax: width * 0.17, ay: height * 0.58, theta: -0.14, s: 165 * unit, k: 0 };
   const key = (f: number, dx: number, dy: number, dDeg: number, sMul: number, k: number) => ({
     f,
@@ -354,7 +361,7 @@ function buildTimeline(width: number, height: number, vertical: boolean, frames:
 
     if (f >= 455 && f < 515) {
       const ts = (f - 455) / 30;
-      const env = Math.sin((Math.PI * (f - 455)) / 60);
+      const env = shake * Math.sin((Math.PI * (f - 455)) / 60);
       pose.ax += 18 * unit * env * Math.sin(2 * Math.PI * 2.5 * ts);
       pose.ay += 9 * unit * env * Math.sin(2 * Math.PI * 1.7 * ts + 0.6);
       pose.theta += ((6 * Math.PI) / 180) * env * Math.sin(2 * Math.PI * 2.0 * ts);
@@ -396,10 +403,10 @@ function percentile(values: number[], q: number) {
   return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
 }
 
-function runScenario(name: string, width: number, height: number, vertical: boolean) {
+function runScenario(name: string, width: number, height: number, vertical: boolean, shake = SHAKE) {
   const frames = 600;
   const scene = new SyntheticScene(width, height, SEED);
-  const timeline = buildTimeline(width, height, vertical, frames);
+  const timeline = buildTimeline(width, height, vertical, frames, undefined, shake);
   const tracker = new LucasKanadeNeckTracker();
   tracker.resize(width, height);
   tracker.endU = END_U;
@@ -422,7 +429,12 @@ function runScenario(name: string, width: number, height: number, vertical: bool
       tracker.setPose(truth.a, truth.b);
       tracker.lock();
     } else {
+      const relocBefore = tracker.relocalizations;
       if (!tracker.track()) lostFrames++;
+      if (TRACE && tracker.relocalizations !== relocBefore) {
+        console.log(`  f${f} relocalizado: eA ${Math.hypot(tracker.anchorA.x - truth.a.x, tracker.anchorA.y - truth.a.y).toFixed(2)} ` +
+          `eB ${Math.hypot(tracker.anchorB.x - truth.b.x, tracker.anchorB.y - truth.b.y).toFixed(2)}`);
+      }
     }
     trackMs += performance.now() - t0;
 
@@ -440,7 +452,7 @@ function runScenario(name: string, width: number, height: number, vertical: bool
       f < 50 ? 'estático' : f < 170 ? 'rotación' : f < 350 ? 'escala+persp' :
       f < 455 ? 'mano/cejuela' : f < 515 ? 'sacudida' : 'exposición';
     (segments[seg] ??= []).push(Math.max(eA, eB));
-    if (TRACE && f % 10 === 0) {
+    if (TRACE && (f % 10 === 0 || (f >= 455 && f < 520))) {
       console.log(
         `  f${String(f).padStart(3)} ${seg.padEnd(13)} eA ${eA.toFixed(2)} eB ${eB.toFixed(2)} ` +
         `inl ${tracker.inliersA}/${tracker.inliersB} conf ${tracker.confidence.toFixed(2)}`
@@ -458,14 +470,125 @@ function runScenario(name: string, width: number, height: number, vertical: bool
   for (const [seg, vals] of Object.entries(segments)) {
     console.log(`  ${seg.padEnd(13)} máx(A,B) media ${fmt(vals.reduce((s, v) => s + v, 0) / vals.length)}  máx ${fmt(Math.max(...vals))} px`);
   }
-  console.log(`  fotogramas sin consenso: ${lostFrames}/${frames - 1}   coste medio pirámide+LK: ${(trackMs / frames).toFixed(2)} ms/fotograma`);
-  return { maxA: Math.max(...errA), maxB: Math.max(...errB), dAB, lostFrames };
+  console.log(
+    `  fotogramas sin consenso: ${lostFrames}/${frames - 1}   relocalizaciones: ${tracker.relocalizations}   ` +
+    `correcciones de pose: ${tracker.poseCorrections}   ` +
+    `coste medio pirámide+LK: ${(trackMs / frames).toFixed(2)} ms/fotograma`
+  );
+  // Tras la sacudida (que termina en el fotograma 515) el mástil debe estar recuperado
+  const settledMax = Math.max(...errA.slice(540).map((v, i) => Math.max(v, errB[540 + i])));
+  return { maxA: Math.max(...errA), maxB: Math.max(...errB), dAB, lostFrames, settledMax };
 }
 
-function exportY4m(path: string, width: number, height: number) {
+/** Calibración vertical: la escalera de trastes debe dar la cejuela y el traste 12 reales */
+function runLadderCheck(width: number, height: number) {
+  const scene = new SyntheticScene(width, height, SEED);
+  const gray = new Float32Array(width * height);
+  const unit = Math.min(width, height) / 225;
+  const baseS = 165 * unit * (225 / 300);
+  const cases: { name: string; pose: Pose; handU: number }[] = [];
+  for (const sMul of [0.7, 1, 1.2]) {
+    for (const nutY of [0.06, 0.13, 0.22]) {
+      cases.push({
+        name: `escala ${sMul.toFixed(2)} cejuela ${Math.round(nutY * 100)}%`,
+        pose: { ax: width * 0.5, ay: height * nutY, theta: Math.PI / 2, s: baseS * sMul, k: 0 },
+        handU: -2,
+      });
+    }
+  }
+  cases.push({ name: 'mano en trastes 2-5', pose: { ax: width * 0.5, ay: height * 0.13, theta: Math.PI / 2, s: baseS, k: 0 }, handU: 0.3 });
+  cases.push({ name: 'mano en traste 7', pose: { ax: width * 0.5, ay: height * 0.13, theta: Math.PI / 2, s: baseS, k: 0 }, handU: 0.62 });
+  cases.push({ name: 'cejuela abajo', pose: { ax: width * 0.5, ay: height * 0.9, theta: -Math.PI / 2, s: baseS, k: 0 }, handU: -2 });
+  cases.push({ name: 'cejuela fuera de cuadro', pose: { ax: width * 0.5, ay: -height * 0.04, theta: Math.PI / 2, s: baseS * 1.1, k: 0 }, handU: -2 });
+  for (const deg of [-8, -4, 4, 8]) {
+    const theta = Math.PI / 2 + (deg * Math.PI) / 180;
+    cases.push({ name: `inclinado ${deg > 0 ? '+' : ''}${deg}°`, pose: { ax: width * 0.5, ay: height * 0.13, theta, s: baseS, k: 0 }, handU: -2 });
+  }
+  cases.push({ name: 'inclinado +4° mano trastes 2-5', pose: { ax: width * 0.5, ay: height * 0.13, theta: Math.PI / 2 + (4 * Math.PI) / 180, s: baseS, k: 0 }, handU: 0.3 });
+
+  // Mismo camino que detectVerticalNeck al fijar: eje (inclinación + centro) y escalera a lo largo del eje
+  const topRow = Math.floor(height * 0.14);
+  const bottomRow = Math.floor(height * 0.86);
+  console.log(`\n=== Calibración vertical: eje + escalera de trastes (${width}x${height}) ===`);
+  let worst = 0;
+  let failures = 0;
+  let fitMs = 0;
+  for (const cs of cases) {
+    scene.render({ pose: cs.pose, handU: cs.handU, handPhase: 0, gain: 1, bias: 0, torsoDx: 0, torsoDy: 0 }, 2, gray, null);
+    const truth = anchorsOf(cs.pose);
+    // Columnas que daría el perfil vertical del detector (bordes en la fila central, con ~1-2 px de error)
+    const yMid = 0.5 * (topRow + bottomRow);
+    const truthSlope = (truth.b.x - truth.a.x) / (truth.b.y - truth.a.y);
+    const xMid = truth.a.x + (yMid - truth.a.y) * truthSlope;
+    const hw = 0.08 * cs.pose.s;
+    const t0 = performance.now();
+    const axis = estimateNeckAxis(gray, width, height, xMid - hw + 1.5, xMid + hw - 1, topRow, bottomRow);
+    const fit = axis
+      ? fitVerticalFretLadder(gray, width, height, axis.cx - axis.halfWidth, axis.cx + axis.halfWidth, 24, axis.slope, axis.yRef)
+      : null;
+    fitMs = Math.max(fitMs, performance.now() - t0);
+    if (!axis || !fit) {
+      failures++;
+      console.log(`  ${cs.name.padEnd(30)} ${axis ? 'sin escalera' : 'sin eje'}`);
+      continue;
+    }
+    // Índice de píxel → coordenada continua, como hace el motor al fijar la pose
+    const at = (y: number) => ({ x: axis.cx + (y - axis.yRef) * axis.slope + 0.5, y: y + 0.5 });
+    const nut = at(fit.nutY);
+    const f12 = at(fit.fret12Y);
+    const eNut = Math.hypot(nut.x - truth.a.x, nut.y - truth.a.y);
+    const e12 = Math.hypot(f12.x - truth.b.x, f12.y - truth.b.y);
+    const tiltErr = (Math.abs(Math.atan(axis.slope) - Math.atan(truthSlope)) * 180) / Math.PI;
+    worst = Math.max(worst, eNut / cs.pose.s, e12 / cs.pose.s);
+    console.log(
+      `  ${cs.name.padEnd(30)} cejuela ${eNut.toFixed(2).padStart(5)} px  traste12 ${e12.toFixed(2).padStart(5)} px  ` +
+      `inclinación ±${tiltErr.toFixed(2)}°  (${fit.matchedFrets} trastes, rms ${fit.rms.toFixed(2)}, ${fit.nutAtTop ? 'arriba' : 'abajo'})`
+    );
+  }
+  console.log(`  coste máximo del ajuste: ${fitMs.toFixed(1)} ms/fotograma`);
+  return { worst, failures };
+}
+
+/** Código de barras de 10 bits (índice de fotograma) para sincronizar la verdad con lo que procesa el navegador */
+const BARCODE_BITS = 10;
+const BARCODE_CELL = 14;
+
+function barcodeLayout(width: number, height: number, portrait: boolean) {
+  // Chrome recorta al centro el vídeo de la cámara falsa hasta el alto ideal pedido (720) y el canvas
+  // vuelve a recortar: el código va dentro de la zona que sigue visible
+  const y0 = portrait ? Math.round(height * 0.78) : height - 2 * BARCODE_CELL;
+  return { x0: 10, y0, cell: BARCODE_CELL, bits: BARCODE_BITS };
+}
+
+function drawBarcode(rgb: Uint8Array, width: number, height: number, portrait: boolean, value: number) {
+  const { x0, y0, cell, bits } = barcodeLayout(width, height, portrait);
+  for (let b = 0; b < bits; b++) {
+    const on = (value >> b) & 1;
+    const bx = x0 + b * cell;
+    for (let y = y0; y < y0 + cell - 2; y++) {
+      for (let x = bx; x < bx + cell - 2; x++) {
+        const o = (y * width + x) * 3;
+        rgb[o] = rgb[o + 1] = rgb[o + 2] = on ? 255 : 0;
+      }
+    }
+  }
+}
+
+function exportY4m(path: string, width: number, height: number, portrait: boolean, truthPath: string | null) {
   const frames = 600;
   const scene = new SyntheticScene(width, height, SEED);
-  const timeline = buildTimeline(width, height, false, frames);
+  const timeline = buildTimeline(width, height, portrait, frames, 0.2);
+  if (truthPath) {
+    const truth = timeline.map((fr) => {
+      const t = anchorsOf(fr.pose);
+      return [t.a.x, t.a.y, t.b.x, t.b.y].map((v) => Math.round(v * 100) / 100);
+    });
+    writeFileSync(
+      truthPath,
+      JSON.stringify({ width, height, barcode: barcodeLayout(width, height, portrait), frames: truth })
+    );
+    console.log(`Verdad por fotograma escrita en ${truthPath}`);
+  }
   const rgb = new Uint8Array(width * height * 3);
   const yPlane = new Uint8Array(width * height);
   const cw = width >> 1;
@@ -476,6 +599,7 @@ function exportY4m(path: string, width: number, height: number) {
   writeSync(fd, `YUV4MPEG2 W${width} H${height} F30:1 Ip A1:1 C420jpeg\n`);
   for (let f = 0; f < frames; f++) {
     scene.render(timeline[f], 1, null, rgb);
+    drawBarcode(rgb, width, height, portrait, f);
     for (let i = 0; i < width * height; i++) {
       const r = rgb[i * 3], g = rgb[i * 3 + 1], b = rgb[i * 3 + 2];
       yPlane[i] = Math.max(0, Math.min(255, Math.round(0.299 * r + 0.587 * g + 0.114 * b)));
@@ -502,18 +626,45 @@ const args = process.argv.slice(2);
 const TRACE = args.includes('--trace');
 const seedIdx = args.indexOf('--seed');
 const SEED = seedIdx >= 0 ? Number(args[seedIdx + 1]) || 7 : 7;
+const shakeIdx = args.indexOf('--shake');
+const SHAKE = shakeIdx >= 0 ? Number(args[shakeIdx + 1]) || 1 : 1;
 const y4mIdx = args.indexOf('--y4m');
+const truthIdx = args.indexOf('--truth');
 if (y4mIdx >= 0) {
-  exportY4m(args[y4mIdx + 1] ?? 'guitar-synthetic.y4m', 960, 540);
+  const portrait = args.includes('--portrait');
+  exportY4m(
+    args[y4mIdx + 1] ?? 'guitar-synthetic.y4m',
+    portrait ? 480 : 960,
+    portrait ? 960 : 540,
+    portrait,
+    truthIdx >= 0 ? args[truthIdx + 1] ?? 'guitar-synthetic-truth.json' : null
+  );
+} else if (args.includes('--ladder-only')) {
+  runLadderCheck(318, 400);
+  runLadderCheck(284, 400);
 } else {
   const results = [
     runScenario('Horizontal (PC / celular apaisado)', 400, 225, false),
     runScenario('Vertical (celular en retrato)', 318, 400, true),
   ];
+  // Sacudida 3x: se pierde el consenso a propósito; hay que relocalizar y quedar bien al terminar
+  const violent = [
+    runScenario('Recuperación tras sacudida 3x (horizontal)', 400, 225, false, 3),
+    runScenario('Recuperación tras sacudida 3x (vertical)', 318, 400, true, 3),
+  ];
+  const ladders = [runLadderCheck(318, 400), runLadderCheck(284, 400)];
   const worst = Math.max(...results.map((r) => Math.max(r.maxA, r.maxB) / r.dAB));
+  const worstSettled = Math.max(...violent.map((r) => r.settledMax / r.dAB));
+  const worstLadder = Math.max(...ladders.map((l) => l.worst));
+  const ladderFailures = ladders.reduce((s, l) => s + l.failures, 0);
   console.log(`\nPeor error relativo a |AB|: ${(worst * 100).toFixed(2)}%`);
-  if (worst > 0.05) {
-    console.error('FALLO: el error máximo supera el 5% de |AB|');
+  console.log(`Tras sacudida 3x: peor error final ${(worstSettled * 100).toFixed(2)}% de |AB|`);
+  console.log(`Calibración por trastes: peor error ${(worstLadder * 100).toFixed(2)}% de |AB|, ${ladderFailures} sin ajuste`);
+  if (worst > 0.05 || worstSettled > 0.03 || worstLadder > 0.03 || ladderFailures > 0) {
+    console.error(
+      'FALLO: tracking > 5% de |AB|, sin recuperación tras sacudida 3x (> 3%), calibración > 3% de |AB| ' +
+      'o calibración sin ajuste'
+    );
     process.exit(1);
   }
 }
