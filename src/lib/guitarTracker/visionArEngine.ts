@@ -1604,6 +1604,11 @@ export class GuitarVisionArEngine {
   private readonly filterB = new OneEuroFilter2D(1.5, 0.4, 2.0);
   private displayA: Point2D = { x: 0, y: 0 };
   private displayB: Point2D = { x: 0, y: 0 };
+  private manualPins: NeckKeypoints | null = null;
+  private manualPinsA: Point2D = { x: 0, y: 0 };
+  private manualPinsB: Point2D = { x: 0, y: 0 };
+  private manualPinsW = 0;
+  private manualPinsH = 0;
   private poseIsDefault = true;
   private totalFrets = 24;
 
@@ -1622,6 +1627,8 @@ export class GuitarVisionArEngine {
   };
 
   private pendingLock = false;
+  /** Tras "Reset Pose" la malla queda quieta (sin LK) hasta que se arrastra un pin o se pulsa "Fijar Tracking" */
+  private posePaused = false;
   private manualHoldUntil = 0;
   private trackingConfidence = 0.95;
   private lastFrameTime = performance.now();
@@ -1686,6 +1693,37 @@ export class GuitarVisionArEngine {
     this.displayB = { x: b.x, y: b.y };
     this.filterA.reset(a);
     this.filterB.reset(b);
+    this.manualPins = null;
+  }
+
+  /**
+   * Pines tal como los soltó el usuario, movidos con el mástil desde entonces. El cuadrilátero del modelo es
+   * simétrico y "corrige" cada pin; partir de él en el siguiente arrastre acumularía ese error.
+   */
+  private currentPins(): NeckKeypoints {
+    const quad = this.computeQuad(this.displayA, this.displayB);
+    const raw = this.manualPins;
+    if (!raw || this.manualPinsW !== this.geom.procW || this.manualPinsH !== this.geom.procH) return quad;
+    const a0 = this.manualPinsA;
+    const b0 = this.manualPinsB;
+    const dx0 = b0.x - a0.x;
+    const dy0 = b0.y - a0.y;
+    const dx1 = this.displayB.x - this.displayA.x;
+    const dy1 = this.displayB.y - this.displayA.y;
+    const den = dx0 * dx0 + dy0 * dy0;
+    if (den < 1e-6) return quad;
+    const ca = (dx0 * dx1 + dy0 * dy1) / den;
+    const sa = (dx0 * dy1 - dy0 * dx1) / den;
+    const map = (p: Point2D): Point2D => ({
+      x: this.displayA.x + ca * (p.x - a0.x) - sa * (p.y - a0.y),
+      y: this.displayA.y + sa * (p.x - a0.x) + ca * (p.y - a0.y),
+    });
+    return {
+      nutTop: map(raw.nutTop),
+      bridgeTop: map(raw.bridgeTop),
+      bridgeBottom: map(raw.bridgeBottom),
+      nutBottom: map(raw.nutBottom),
+    };
   }
 
   private applyDefaultPose() {
@@ -1881,6 +1919,7 @@ export class GuitarVisionArEngine {
     this.calibrationHoldFrames = 0;
     this.calibDetected = false;
     this.pendingLock = false;
+    this.posePaused = false;
     this.trackingConfidence = 0.5;
     this.tracker.invalidateFeatures();
   }
@@ -1892,6 +1931,7 @@ export class GuitarVisionArEngine {
   public lockTracking(): boolean {
     this.state = 'tracking';
     this.manualHoldUntil = 0;
+    this.posePaused = false;
     this.tracker.setPose(this.displayA, this.displayB);
     if (!this.tracker.hasFrame) {
       this.pendingLock = true;
@@ -1914,29 +1954,22 @@ export class GuitarVisionArEngine {
   }
 
   /**
-   * Ajuste manual: el pin arrastrado queda exactamente bajo el dedo; el pin opuesto del mismo extremo
-   * se mantiene, así se corrige posición, ángulo y grosor. Al soltar, el tracking se vuelve a fijar.
+   * Ajuste manual: cejuela y último traste son los puntos medios de sus dos pines (tal como se soltaron),
+   * así se corrige posición, ángulo y grosor. Al soltar, el tracking se vuelve a fijar.
    */
   public setNormalizedKeypoint(key: keyof NeckKeypoints, pt: Point2D) {
     const g = this.geom;
     const p = { x: clamp(pt.x, 0.01, 0.99) * g.procW, y: clamp(pt.y, 0.01, 0.99) * g.procH };
-    const quad = this.computeQuad(this.displayA, this.displayB);
+    const pins = this.currentPins();
+    pins[key] = p;
     const u12 = this.fret12U;
-    const endU = this.tracker.endU;
     const isNut = key === 'nutTop' || key === 'nutBottom';
-    const opposite =
-      key === 'nutTop' ? quad.nutBottom :
-      key === 'nutBottom' ? quad.nutTop :
-      key === 'bridgeTop' ? quad.bridgeBottom : quad.bridgeTop;
 
-    let nut: Point2D = { ...this.displayA };
+    let nut: Point2D = { x: (pins.nutTop.x + pins.nutBottom.x) * 0.5, y: (pins.nutTop.y + pins.nutBottom.y) * 0.5 };
     let end: Point2D = {
-      x: this.displayA.x + (this.displayB.x - this.displayA.x) * endU,
-      y: this.displayA.y + (this.displayB.y - this.displayA.y) * endU,
+      x: (pins.bridgeTop.x + pins.bridgeBottom.x) * 0.5,
+      y: (pins.bridgeTop.y + pins.bridgeBottom.y) * 0.5,
     };
-    const center = { x: (p.x + opposite.x) * 0.5, y: (p.y + opposite.y) * 0.5 };
-    if (isNut) nut = center;
-    else end = center;
 
     let ax = end.x - nut.x;
     let ay = end.y - nut.y;
@@ -1952,24 +1985,39 @@ export class GuitarVisionArEngine {
     }
 
     const d = len * u12;
-    const halfWidthPx = Math.abs(((p.x - opposite.x) * -ay + (p.y - opposite.y) * ax) / len) * 0.5;
-    const ratio = clamp(halfWidthPx / Math.max(1e-3, d), MIN_HALF_WIDTH_RATIO, MAX_HALF_WIDTH_RATIO);
-    if (isNut) this.tracker.nutHalfWidthRatio = ratio;
-    else this.tracker.endHalfWidthRatio = ratio;
+    const halfWidth = (a: Point2D, b: Point2D) => Math.abs(((a.x - b.x) * -ay + (a.y - b.y) * ax) / len) * 0.5;
+    this.tracker.nutHalfWidthRatio = clamp(
+      halfWidth(pins.nutTop, pins.nutBottom) / Math.max(1e-3, d), MIN_HALF_WIDTH_RATIO, MAX_HALF_WIDTH_RATIO
+    );
+    this.tracker.endHalfWidthRatio = clamp(
+      halfWidth(pins.bridgeTop, pins.bridgeBottom) / Math.max(1e-3, d), MIN_HALF_WIDTH_RATIO, MAX_HALF_WIDTH_RATIO
+    );
 
     this.setPose(nut, { x: nut.x + ax * u12, y: nut.y + ay * u12 });
+    this.manualPins = pins;
+    this.manualPinsA = { ...this.displayA };
+    this.manualPinsB = { ...this.displayB };
+    this.manualPinsW = g.procW;
+    this.manualPinsH = g.procH;
     this.poseIsDefault = false;
     this.tracker.invalidateFeatures();
     this.state = 'tracking';
     this.pendingLock = true;
+    this.posePaused = false;
     this.manualHoldUntil = performance.now() + MANUAL_DRAG_SETTLE_MS;
     this.trackingConfidence = 0.98;
   }
 
+  /**
+   * Vuelve a la pose por defecto y la deja quieta: fijar el LK sobre una pose que no coincide con el mástil
+   * haría que la malla siguiera al fondo y se saliera del lienzo (pines inalcanzables).
+   */
   public resetDefaultNeckPose() {
     this.applyDefaultPose();
     this.tracker.invalidateFeatures();
-    if (this.state === 'tracking') this.pendingLock = true;
+    this.pendingLock = false;
+    this.posePaused = this.state === 'tracking';
+    this.manualHoldUntil = 0;
     this.trackingConfidence = 0.96;
   }
 
@@ -1987,7 +2035,7 @@ export class GuitarVisionArEngine {
    * Paso de tracking por flujo óptico LK (solo con fotograma nuevo de cámara).
    */
   private updateTrackingStep(now: number) {
-    if (now < this.manualHoldUntil) return;
+    if (this.posePaused || now < this.manualHoldUntil) return;
     if (this.pendingLock || !this.tracker.isLocked) {
       this.lockTracking();
       this.lastTrackTime = now;
@@ -2651,14 +2699,17 @@ export class GuitarVisionArEngine {
       }
     }
 
-    if (isFrozen) {
-      const msg = 'SEGUIMIENTO PERDIDO · REACOMODA LA GUITARRA O PULSA FIJAR TRACKING';
+    const paused = this.state === 'tracking' && this.posePaused;
+    if (isFrozen || paused) {
+      const msg = isFrozen
+        ? 'SEGUIMIENTO PERDIDO · REACOMODA LA GUITARRA O PULSA FIJAR TRACKING'
+        : 'POSE POR DEFECTO · ARRASTRA LOS PINES O PULSA FIJAR TRACKING';
       ctx.save();
       ctx.font = 'bold 10px Inter, monospace, sans-serif';
       const boxW = Math.min(canvasWidth - 16, ctx.measureText(msg).width + 24);
-      ctx.fillStyle = 'rgba(120, 53, 15, 0.9)';
+      ctx.fillStyle = isFrozen ? 'rgba(120, 53, 15, 0.9)' : 'rgba(12, 74, 110, 0.9)';
       ctx.fillRect((canvasWidth - boxW) * 0.5, 54, boxW, 20);
-      ctx.fillStyle = '#fde68a';
+      ctx.fillStyle = isFrozen ? '#fde68a' : '#bae6fd';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(msg, canvasWidth * 0.5, 64);
