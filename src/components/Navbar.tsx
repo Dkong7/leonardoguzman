@@ -38,7 +38,6 @@ const Navbar = () => {
     { name: t('music'), path: '/musica' },
     { name: t('bio'), path: '/biografia' },
     { name: lang === 'ES' ? 'CONTACTO' : 'CONTACT', path: '/booking' },
-    { name: 'GUITAR TRACKER', path: '/guitarTracker' },
   ];
 
   const isActive = (path: string) => location.pathname === path;
