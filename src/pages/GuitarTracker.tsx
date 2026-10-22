@@ -26,6 +26,8 @@ import {
   SwitchCamera,
   Smartphone,
   Lock,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 import {
@@ -57,6 +59,7 @@ const INLAY_FRETS = new Set([3, 5, 7, 9, 12, 15, 17, 19, 21, 24]);
 
 // Re-renderizar este componente a 60 Hz roba al hilo principal el tiempo que necesita el flujo óptico.
 const UI_TELEMETRY_INTERVAL_MS = 66;
+const FRET_SPAN_WINDOW_MS = 1800;
 
 const GuitarTracker: React.FC = () => {
   // --- Motores instanciados ---
@@ -114,6 +117,7 @@ const GuitarTracker: React.FC = () => {
   const [rootIndex, setRootIndex] = useState<number>(1); // C# por defecto como en el video
   const [scaleId, setScaleId] = useState<string>('minorPentatonic');
   const [boxFilter, setBoxFilter] = useState<number>(0); // 0 = Todo el mástil, 1..5 = Cajas pentatónicas
+  const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
 
   // --- Opciones de Visión AR ---
   const [showKeypointsHud, setShowKeypointsHud] = useState<boolean>(true);
@@ -501,7 +505,9 @@ const GuitarTracker: React.FC = () => {
           telemetry?.currentNote ?? null,
           visualMode,
           boxFilter,
-          hoveredKeypoint || draggingKeypoint
+          hoveredKeypoint || draggingKeypoint,
+          scaleId,
+          rootIndex,
         );
         if (pushUi) setVisionTelemetry(vTelemetry);
       }
@@ -624,6 +630,40 @@ const GuitarTracker: React.FC = () => {
   const currentScaleObj = SCALES[scaleId] || SCALES.minorPentatonic;
   const currentRootName = PITCH_CLASSES[rootIndex];
   const displayedFretsCount = compactMobileFrets ? Math.min(12, totalFrets) : totalFrets;
+
+  const fretHandSpan = useMemo(() => {
+    const now = performance.now();
+    const fresh = dspTelemetry.recentNotes.filter(
+      (note) => now - note.timestamp <= FRET_SPAN_WINDOW_MS
+    );
+    if (fresh.length === 0) return null;
+    let hint = cursorFretPosition;
+    let minFret = Infinity;
+    let maxFret = -Infinity;
+    for (const note of [...fresh].reverse()) {
+      let bestFret = -1;
+      let bestDist = 999;
+      for (let s = 0; s < 6; s++) {
+        const row = fretMatrix[s];
+        if (!row) continue;
+        for (let f = 0; f <= displayedFretsCount; f++) {
+          const node = row[f];
+          if (!node || node.midi !== note.midi) continue;
+          const dist = Math.abs(f - hint);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestFret = f;
+          }
+        }
+      }
+      if (bestFret < 0) continue;
+      hint = bestFret;
+      if (bestFret < minFret) minFret = bestFret;
+      if (bestFret > maxFret) maxFret = bestFret;
+    }
+    if (minFret === Infinity) return null;
+    return { min: minFret, max: maxFret };
+  }, [dspTelemetry, fretMatrix, displayedFretsCount, cursorFretPosition]);
 
   return (
     <div className="min-h-screen bg-[#070812] text-slate-100 font-sans flex flex-col selection:bg-cyan-500 selection:text-black overflow-x-hidden">
@@ -804,6 +844,80 @@ const GuitarTracker: React.FC = () => {
       ===================================================================== */}
       {activeTab === 'studio' ? (
         <div className="flex-1 max-w-[1600px] w-full mx-auto p-2.5 sm:p-4 lg:px-6 flex flex-col gap-3 sm:gap-4">
+          <div className="fixed right-0 top-20 z-[110] pointer-events-none">
+            <div
+              className={`pointer-events-auto flex items-start transition-transform duration-200 ${
+                isSidePanelOpen ? 'translate-x-0' : 'translate-x-[calc(100%-36px)]'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setIsSidePanelOpen((open) => !open)}
+                className="mt-3 h-28 w-9 shrink-0 rounded-l-xl border border-r-0 border-yellow-400/80 bg-yellow-400 text-slate-950 shadow-[0_0_18px_rgba(250,204,21,0.45)] flex items-center justify-center"
+                aria-expanded={isSidePanelOpen}
+                aria-label={isSidePanelOpen ? 'Cerrar panel de tonalidad' : 'Abrir panel de tonalidad'}
+              >
+                {isSidePanelOpen ? (
+                  <ChevronRight className="w-4 h-4" />
+                ) : (
+                  <ChevronLeft className="w-4 h-4" />
+                )}
+              </button>
+              <aside className="w-[min(19rem,calc(100vw-36px))] max-h-[calc(100dvh-6.5rem)] overflow-y-auto bg-[#0c0f20]/95 backdrop-blur-md border border-yellow-400/40 rounded-bl-2xl shadow-2xl p-3 flex flex-col gap-3">
+                <h2 className="text-[11px] font-black uppercase tracking-wider text-yellow-300">
+                  Tonalidad rápida
+                </h2>
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-400 mb-1.5">Tonalidad / Raíz</label>
+                  <div className="grid grid-cols-6 gap-1">
+                    {PITCH_CLASSES.map((pc, idx) => (
+                      <button
+                        key={`side-${pc}`}
+                        type="button"
+                        onClick={() => setRootIndex(idx)}
+                        className={`py-1.5 rounded-md text-[11px] font-black border ${
+                          rootIndex === idx
+                            ? 'bg-cyan-500 text-slate-950 border-cyan-300'
+                            : 'bg-slate-900 text-slate-300 border-slate-800'
+                        }`}
+                      >
+                        {pc}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-400 mb-1">Escala / Modo</label>
+                  <select
+                    value={scaleId}
+                    onChange={(e) => setScaleId(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white"
+                  >
+                    {Object.values(SCALES).map((sc) => (
+                      <option key={sc.id} value={sc.id}>
+                        {sc.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-400 mb-1">Caja / Posición</label>
+                  <select
+                    value={boxFilter}
+                    onChange={(e) => setBoxFilter(Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white"
+                  >
+                    <option value={0}>Todo el Diapasón</option>
+                    <option value={1}>Caja 1 (Tónica 6ta)</option>
+                    <option value={2}>Caja 2</option>
+                    <option value={3}>Caja 3</option>
+                    <option value={4}>Caja 4</option>
+                    <option value={5}>Caja 5</option>
+                  </select>
+                </div>
+              </aside>
+            </div>
+          </div>
           {/* CONTENEDOR PRINCIPAL: En Desktop 12 columnas; en Celular apilado ergonómico */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4 items-stretch">
             {/* 1. VIEWPORT AR DE CÁMARA Y HOMOGRAFÍA 3D */}
@@ -1367,6 +1481,17 @@ const GuitarTracker: React.FC = () => {
 
                   {/* Filas de las 6 cuerdas */}
                   <div className="flex flex-col gap-1.5 sm:gap-2 relative">
+                    {fretHandSpan && (
+                      <div
+                        className="absolute z-[6] pointer-events-none rounded-md border-[3px] border-[#fbbf24] bg-yellow-400/30 shadow-[0_0_22px_rgba(251,191,36,0.8)]"
+                        style={{
+                          top: '8%',
+                          height: '84%',
+                          left: `${(fretHandSpan.min / (displayedFretsCount + 1)) * 100}%`,
+                          width: `${((fretHandSpan.max - fretHandSpan.min + 1) / (displayedFretsCount + 1)) * 100}%`,
+                        }}
+                      />
+                    )}
                     {(invertStrings ? [0, 1, 2, 3, 4, 5] : [5, 4, 3, 2, 1, 0]).map((sIdx) => {
                       const row = (fretMatrix[sIdx] || []).slice(0, displayedFretsCount + 1);
                       return (
@@ -1400,7 +1525,7 @@ const GuitarTracker: React.FC = () => {
                               'bg-sky-500 border-sky-300 text-white shadow-[0_0_8px_rgba(14,165,233,0.4)]';
                             if (isPlayingExact) {
                               badgeClass =
-                                'bg-yellow-400 border-white text-slate-950 scale-125 shadow-[0_0_15px_#facc15] z-20';
+                                'bg-yellow-300 border-yellow-50 text-slate-950 scale-150 shadow-[0_0_28px_#facc15,0_0_8px_#fff] z-20';
                             } else if (node.role === 'root') {
                               badgeClass =
                                 'bg-pink-500 border-pink-200 text-white shadow-[0_0_10px_rgba(236,72,153,0.5)]';
@@ -1419,10 +1544,12 @@ const GuitarTracker: React.FC = () => {
                                   dspEngineRef.current?.pluckNote(node.midi, 0.75);
                                   setCursorFretPosition(node.fret);
                                 }}
-                                className={`h-full flex items-center justify-center relative group border-r active:scale-110 ${
-                                  node.fret === 0
-                                    ? 'border-r-4 border-r-slate-200 bg-slate-900/60'
-                                    : 'border-r-slate-700/70'
+                                className={`h-full flex items-center justify-center relative group border-r transition-all duration-75 ${
+                                  isPlayingExact
+                                    ? 'bg-yellow-400 scale-110 shadow-[0_0_32px_#facc15] z-30 border-yellow-200'
+                                    : node.fret === 0
+                                    ? 'border-r-4 border-r-slate-200 bg-slate-900/60 active:scale-110'
+                                    : 'border-r-slate-700/70 active:scale-110'
                                 }`}
                               >
                                 {showNode ? (
