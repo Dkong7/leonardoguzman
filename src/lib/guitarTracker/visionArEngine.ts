@@ -4,12 +4,14 @@
 // 3. LK piramidal subpíxel por punto, con compensación de brillo y verificación forward-backward.
 // 4. Cinemática de cuerpo rígido: similitud 2D (rotación + escala + traslación) estimada por RANSAC sobre
 //    ambas nubes, corrección local por mediana de residuos en cada ancla y restricción de distancia A–B.
-// 5. Reposición automática de características y filtro One-Euro para la malla en pantalla.
+// 5. Reposición automática de características y filtro alpha-beta (KalmanPoint2D) para la malla en pantalla.
 // El buffer de proceso usa exactamente el mismo recorte (object-fit: cover) y espejo que el canvas visible,
 // así las coordenadas rastreadas coinciden 1:1 con la malla dibujada (también en vertical en el celular).
 
 import {
   getNormalizedFretPosition,
+  PITCH_CLASSES,
+  SCALES,
   type FretNode,
 } from './musicTheoryEngine';
 import type { DetectedNoteInfo } from './audioDspEngine';
@@ -55,10 +57,10 @@ export interface PyramidLevel {
 const PROC_LONG_SIDE = 400;
 const PYRAMID_LEVELS = 3;
 
-const LK_WIN_RADIUS = 5; // Ventana 11x11 por nivel
+const LK_WIN_RADIUS = 11; // Ventana 23×23 por nivel: aguanta saltos rápidos sin perder la pirámide
 const LK_WIN_AREA = (2 * LK_WIN_RADIUS + 1) * (2 * LK_WIN_RADIUS + 1);
 const LK_MAX_ITERATIONS = 10;
-const LK_EPSILON_SQ = 0.02 * 0.02;
+const LK_EPSILON_SQ = 0.002; // parada Gauss-Newton cuando ||Δ||² < 0.002 (subpíxel, más estricto que 0.008)
 const LK_MIN_EIGEN = 2.0; // λmin(G)/N en (niveles de gris / px)²: rechaza zonas planas y bordes puros
 const LK_MAX_RESIDUAL = 24; // Error absoluto medio (con sesgo de brillo compensado)
 const FB_MAX_ERROR = 1.0; // px entre el punto original y el re-rastreado hacia atrás
@@ -2418,49 +2420,51 @@ export class LucasKanadeNeckTracker {
 }
 
 // =====================================================================
-// FILTRO ONE-EURO 2D (suaviza el temblor en reposo sin añadir retardo al mover la guitarra)
+// FILTRO ALPHA-BETA 2D (Kalman de velocidad constante, una medición por eje)
+// alpha alto: la malla sigue la medición de este fotograma y no se queda un frame atrás.
 // =====================================================================
 
-class OneEuroFilter2D {
-  private minCutoff: number;
-  private beta: number;
-  private dCutoff: number;
+class KalmanPoint2D {
+  public alpha: number;
+  public beta: number;
   private x = 0;
   private y = 0;
-  private dx = 0;
-  private dy = 0;
+  private vx = 0;
+  private vy = 0;
   private initialized = false;
 
-  constructor(minCutoff: number, beta: number, dCutoff: number) {
-    this.minCutoff = minCutoff;
+  constructor(alpha = 0.85, beta = 0.35) {
+    this.alpha = alpha;
     this.beta = beta;
-    this.dCutoff = dCutoff;
-  }
-
-  private static alpha(cutoff: number, dt: number): number {
-    const tau = 2 * Math.PI * cutoff * dt;
-    return tau / (1 + tau);
   }
 
   public reset(p: Point2D) {
     this.x = p.x;
     this.y = p.y;
-    this.dx = 0;
-    this.dy = 0;
+    this.vx = 0;
+    this.vy = 0;
     this.initialized = true;
   }
 
   public filter(p: Point2D, dt: number): Point2D {
-    if (!this.initialized) {
+    if (!this.initialized || dt <= 1e-4) {
       this.reset(p);
       return { x: p.x, y: p.y };
     }
-    const ad = OneEuroFilter2D.alpha(this.dCutoff, dt);
-    this.dx += ad * ((p.x - this.x) / dt - this.dx);
-    this.dy += ad * ((p.y - this.y) / dt - this.dy);
-    const a = OneEuroFilter2D.alpha(this.minCutoff + this.beta * Math.hypot(this.dx, this.dy), dt);
-    this.x += a * (p.x - this.x);
-    this.y += a * (p.y - this.y);
+    const predX = this.x + this.vx * dt;
+    const predY = this.y + this.vy * dt;
+    const rx = p.x - predX;
+    const ry = p.y - predY;
+    this.x = predX + this.alpha * rx;
+    this.y = predY + this.alpha * ry;
+    this.vx += (this.beta / dt) * rx;
+    this.vy += (this.beta / dt) * ry;
+    const speed = Math.hypot(this.vx, this.vy);
+    const maxSpeed = 1800;
+    if (speed > maxSpeed) {
+      this.vx *= maxSpeed / speed;
+      this.vy *= maxSpeed / speed;
+    }
     return { x: this.x, y: this.y };
   }
 }
@@ -2482,9 +2486,9 @@ interface FrameGeometry {
 
 export class GuitarVisionArEngine {
   private readonly tracker = new LucasKanadeNeckTracker();
-  // beta alto: con la guitarra en movimiento el filtro casi no retrasa (el LK ya es subpíxel en reposo)
-  private readonly filterA = new OneEuroFilter2D(1.5, 0.4, 2.0);
-  private readonly filterB = new OneEuroFilter2D(1.5, 0.4, 2.0);
+  // α=0.85 confía en la medición actual; β=0.35 actualiza la velocidad para no deslizarse al mover rápido
+  private readonly filterA = new KalmanPoint2D(0.85, 0.35);
+  private readonly filterB = new KalmanPoint2D(0.85, 0.35);
   private displayA: Point2D = { x: 0, y: 0 };
   private displayB: Point2D = { x: 0, y: 0 };
   private manualPins: NeckKeypoints | null = null;
@@ -3309,6 +3313,82 @@ export class GuitarVisionArEngine {
   }
 
   /**
+   * Rótulo de tonalidad justo detrás de la cejuela, girado con el mástil.
+   */
+  private drawScaleLabel(
+    ctx: CanvasRenderingContext2D,
+    anchorA: Point2D,
+    anchorB: Point2D,
+    rootName: string,
+    scaleName: string,
+  ) {
+    const label = `${rootName} ${scaleName}`.trim();
+    if (!label) return;
+    const dx = anchorB.x - anchorA.x;
+    const dy = anchorB.y - anchorA.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 8) return;
+    const theta = Math.atan2(dy, dx);
+    const back = Math.min(78, Math.max(42, len * 0.14));
+    const x = anchorA.x - (dx / len) * back;
+    const y = anchorA.y - (dy / len) * back;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(theta);
+    ctx.font = 'bold 14px Inter, sans-serif';
+    const textW = ctx.measureText(label).width;
+    const boxW = textW + 16;
+    const boxH = 22;
+    ctx.fillStyle = 'rgba(248, 250, 252, 0.9)';
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.28)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') ctx.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, 5);
+    else ctx.rect(-boxW / 2, -boxH / 2, boxW, boxH);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#9f1239';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, 0, 0.5);
+    ctx.restore();
+  }
+
+  /** Casilla completa entre el traste activo y el anterior, sobre esa cuerda. */
+  private drawLitFretCell(
+    ctx: CanvasRenderingContext2D,
+    quad: NeckKeypoints,
+    fret: number,
+    totalFrets: number,
+    v: number,
+  ) {
+    const u1 = fret <= 0 ? 0.045 : getNormalizedFretPosition(fret, totalFrets);
+    const u0 = fret <= 0 ? -0.028 : getNormalizedFretPosition(fret - 1, totalFrets);
+    const half = 0.082;
+    const v0 = Math.max(-0.02, v - half);
+    const v1 = Math.min(1.02, v + half);
+    const p00 = projectNeckPoint(quad, u0, v0);
+    const p10 = projectNeckPoint(quad, u1, v0);
+    const p11 = projectNeckPoint(quad, u1, v1);
+    const p01 = projectNeckPoint(quad, u0, v1);
+    ctx.save();
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 36;
+    ctx.fillStyle = 'rgba(250, 204, 21, 0.94)';
+    ctx.beginPath();
+    ctx.moveTo(p00.x, p00.y);
+    ctx.lineTo(p10.x, p10.y);
+    ctx.lineTo(p11.x, p11.y);
+    ctx.lineTo(p01.x, p01.y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 16;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /**
    * Renderiza el frame de video + el overlay AR con proyección homográfica del diapasón rastreado
    */
   public renderArFrame(
@@ -3321,7 +3401,9 @@ export class GuitarVisionArEngine {
     activeNote: DetectedNoteInfo | null,
     mode: 'reactive' | 'guided',
     boxFilter: number,
-    hoveredKeypoint: keyof NeckKeypoints | null
+    hoveredKeypoint: keyof NeckKeypoints | null,
+    scaleId: string = 'minorPentatonic',
+    rootIndex: number = 0,
   ): VisionTelemetry {
     const now = performance.now();
     const dt = Math.max(0.001, Math.min(0.1, (now - this.lastFrameTime) / 1000));
@@ -3544,6 +3626,10 @@ export class GuitarVisionArEngine {
 
         const pt = projectNeckPoint(screenQuad, u, v);
 
+        if (isExactMidiPlaying) {
+          this.drawLitFretCell(ctx, screenQuad, f, totalFrets, v);
+        }
+
         const baseRadius = isExactMidiPlaying ? 11.5 : node.role === 'root' ? 8.8 : 7.2;
         const perspectiveScale = 1.05 - u * 0.28;
         const radius = Math.max(4.5, baseRadius * perspectiveScale);
@@ -3604,6 +3690,10 @@ export class GuitarVisionArEngine {
     }
 
     ctx.restore();
+
+    const activeRootName = PITCH_CLASSES[((rootIndex % 12) + 12) % 12] ?? '';
+    const activeScaleName = SCALES[scaleId]?.name ?? '';
+    this.drawScaleLabel(ctx, screenA, screenB, activeRootName, activeScaleName);
 
     // 7. Depuración: nubes LK (verde = inlier, rojo = outlier), anclas A/B y los 4 pines arrastrables
     if (this.showVisionDebug || this.trackingMode === 'manual-calibration' || hoveredKeypoint) {
